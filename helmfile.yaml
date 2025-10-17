@@ -1,0 +1,55 @@
+repositories:
+  - name: prometheus-community
+    url: https://prometheus-community.github.io/helm-charts
+  - name: grafana
+    url: https://grafana.github.io/helm-charts
+  - name: open-telemetry
+    url: https://open-telemetry.github.io/opentelemetry-helm-charts
+
+environments:
+  dev:
+    values:
+      - environments/dev/values.yaml
+  prod:
+    values:
+      - environments/prod/values.yaml
+
+releases:
+  # OpenTelemetry Collector
+  - name: otel-collector
+    namespace: observability
+    chart: open-telemetry/opentelemetry-collector
+    version: 0.74.0
+    values:
+      - k8s/base/otel-collector/values.yaml
+
+  # Prometheus Agent
+  - name: prometheus-agent
+    namespace: observability
+    chart: prometheus-community/prometheus
+    version: 25.8.0
+    values:
+      - k8s/base/prometheus-agent/values.yaml
+
+  # Grafana
+  - name: grafana
+    namespace: observability
+    chart: grafana/grafana
+    version: 7.0.0
+    values:
+      - k8s/base/grafana/values.yaml
+
+  # Exporters
+  - name: node-exporter
+    namespace: observability
+    chart: prometheus-community/prometheus-node-exporter
+    version: 4.24.0
+    values:
+      - k8s/base/exporters/node-exporter-values.yaml
+
+  - name: kube-state-metrics
+    namespace: observability
+    chart: prometheus-community/kube-state-metrics
+    version: 5.15.0
+    values:
+      - k8s/base/exporters/kube-state-metrics-values.yaml

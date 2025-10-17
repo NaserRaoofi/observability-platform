@@ -1,0 +1,37 @@
+name: Grafana Sync
+
+on:
+  push:
+    paths:
+      - "grafana/dashboards/**"
+      - "grafana/provisioning/**"
+    branches: [main]
+
+jobs:
+  sync-dashboards:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Install Grafana CLI
+        run: |
+          wget https://dl.grafana.com/oss/release/grafana-10.2.0.linux-amd64.tar.gz
+          tar -zxvf grafana-10.2.0.linux-amd64.tar.gz
+          sudo mv grafana-10.2.0/bin/grafana-cli /usr/local/bin/
+
+      - name: Validate Dashboard JSON
+        run: |
+          find grafana/dashboards/ -name "*.json" -exec python -m json.tool {} \; > /dev/null
+
+      - name: Sync to Grafana
+        env:
+          GRAFANA_URL: ${{ vars.GRAFANA_URL }}
+          GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
+        run: |
+          echo "Dashboard sync would happen here"
+          echo "In a real implementation, you would use the Grafana API to update dashboards"

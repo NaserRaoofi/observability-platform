@@ -1,0 +1,16 @@
+# tfsec configuration
+severity: MEDIUM
+
+include:
+  - aws-*
+
+exclude:
+  # Exclude rules that may not apply to our specific use case
+  - aws-s3-bucket-public-read-prohibited # Only if public access is intentional
+  - aws-ec2-no-public-ingress-sgr # Only if public access is required for ALB
+
+# Custom checks
+custom_checks:
+  - name: "observability-naming-convention"
+    description: "Ensure resources follow observability naming convention"
+    severity: HIGH

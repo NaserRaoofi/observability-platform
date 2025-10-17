@@ -1,0 +1,42 @@
+apiVersion: 1
+
+providers:
+  - name: "SRE Dashboards"
+    orgId: 1
+    folder: "SRE"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/sre
+
+  - name: "Application Dashboards"
+    orgId: 1
+    folder: "Applications"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/app
+
+  - name: "Infrastructure Dashboards"
+    orgId: 1
+    folder: "Infrastructure"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/infra
+
+  - name: "SLO Dashboards"
+    orgId: 1
+    folder: "SLO"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/slo

@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-kill-chaos
+  namespace: observability
+  labels:
+    app: chaos-pod-kill
+spec:
+  containers:
+    - name: chaos
+      image: chaostoolkit/chaostoolkit:latest
+      command: ["sleep", "3600"]
+      env:
+        - name: CHAOS_EXPERIMENT
+          value: "pod-kill"
+  restartPolicy: Never
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pod-kill-job
+  namespace: observability
+spec:
+  template:
+    spec:
+      containers:
+        - name: kubectl
+          image: bitnami/kubectl:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Starting pod kill chaos experiment"
+              # Kill random pods with app=demo-shop label
+              kubectl delete pod -l app=demo-shop --field-selector=status.phase=Running --ignore-not-found=true
+              echo "Pod kill chaos experiment completed"
+      restartPolicy: Never
+  backoffLimit: 1
