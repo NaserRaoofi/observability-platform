@@ -1,0 +1,110 @@
+apiVersion: sloth.slok.dev/v1
+kind: PrometheusServiceLevel
+metadata:
+  name: mimir-availability-slo
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: sloth
+    app.kubernetes.io/part-of: observability-stack
+    service: mimir
+spec:
+  service: "mimir"
+  labels:
+    team: "platform"
+    component: "metrics-storage"
+    environment: "production"
+  slos:
+    # Request availability SLO
+    - name: "requests-availability"
+      objective: 99.9
+      description: "99.9% of Mimir requests should be successful"
+      sli:
+        events:
+          # Error events: HTTP 5xx responses and timeouts
+          errorQuery: |
+            sum(rate(mimir_request_errors_total{
+              job=~"mimir-.*",
+              status_code=~"5.."
+            }[5m]))
+          # Total events: All HTTP requests
+          totalQuery: |
+            sum(rate(mimir_request_total{
+              job=~"mimir-.*"
+            }[5m]))
+      alerting:
+        name: MimirHighErrorRate
+        labels:
+          category: availability
+          severity: critical
+          service: mimir
+        annotations:
+          summary: "Mimir error rate is above SLO threshold"
+          description: |
+            Mimir availability SLO is being violated.
+            Error rate: {{ printf "%.2f" $value }}%
+            Threshold: 0.1%
+          runbook_url: "https://runbooks.example.com/mimir/high-error-rate"
+
+    # Query latency SLO
+    - name: "query-latency"
+      objective: 99.0
+      description: "99% of Mimir queries should complete within 1 second"
+      sli:
+        events:
+          # Error events: Queries taking longer than 1s
+          errorQuery: |
+            sum(rate(mimir_request_duration_seconds_bucket{
+              job=~"mimir-.*",
+              route=~"api_v1_(query|query_range)",
+              le="1"
+            }[5m]))
+          # Total events: All query requests
+          totalQuery: |
+            sum(rate(mimir_request_duration_seconds_count{
+              job=~"mimir-.*",
+              route=~"api_v1_(query|query_range)"
+            }[5m]))
+      alerting:
+        name: MimirHighQueryLatency
+        labels:
+          category: latency
+          severity: warning
+          service: mimir
+        annotations:
+          summary: "Mimir query latency is above SLO threshold"
+          description: |
+            {{ printf "%.2f" $value }}% of queries are completing within 1 second
+            SLO threshold: 99%
+          runbook_url: "https://runbooks.example.com/mimir/high-latency"
+
+    # Ingestion success rate SLO
+    - name: "ingestion-success-rate"
+      objective: 99.5
+      description: "99.5% of metric ingestion should succeed"
+      sli:
+        events:
+          # Error events: Failed ingestion requests
+          errorQuery: |
+            sum(rate(mimir_distributor_samples_in_total{
+              job="mimir-distributor"
+            }[5m])) -
+            sum(rate(mimir_distributor_received_samples_total{
+              job="mimir-distributor"
+            }[5m]))
+          # Total events: All ingestion attempts
+          totalQuery: |
+            sum(rate(mimir_distributor_samples_in_total{
+              job="mimir-distributor"
+            }[5m]))
+      alerting:
+        name: MimirIngestionFailures
+        labels:
+          category: ingestion
+          severity: warning
+          service: mimir
+        annotations:
+          summary: "Mimir ingestion failure rate is above SLO threshold"
+          description: |
+            Mimir ingestion success rate: {{ printf "%.2f" $value }}%
+            SLO threshold: 99.5%
+          runbook_url: "https://runbooks.example.com/mimir/ingestion-failures"

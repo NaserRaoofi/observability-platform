@@ -1,0 +1,210 @@
+# Kube State Metrics Base Configuration
+# Uses official prometheus-community/kube-state-metrics chart
+
+# Global settings
+nameOverride: "kube-state-metrics"
+fullnameOverride: "kube-state-metrics"
+
+# Image configuration
+image:
+  registry: registry.k8s.io
+  repository: kube-state-metrics/kube-state-metrics
+  # tag: "" # Use chart default
+  pullPolicy: IfNotPresent
+
+# Security context
+securityContext:
+  enabled: true
+  runAsGroup: 65534
+  runAsNonRoot: true
+  runAsUser: 65534
+  fsGroup: 65534
+
+# Container security context
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+  annotations: {}
+  labels: {}
+
+# ServiceAccount configuration
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: "kube-state-metrics"
+  imagePullSecrets: []
+
+# RBAC configuration (REQUIRED for Kubernetes API access)
+rbac:
+  create: true
+  useClusterRole: true
+
+# Pod Security Policy
+podSecurityPolicy:
+  enabled: false
+  additionalVolumes: []
+
+# Deployment configuration
+replicas: 1
+revisionHistoryLimit: 10
+
+# Pod configuration
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+
+podLabels:
+  app.kubernetes.io/part-of: observability-stack
+
+# Node selection and scheduling
+nodeSelector:
+  kubernetes.io/os: linux
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - kube-state-metrics
+          topologyKey: kubernetes.io/hostname
+
+# Priority class
+priorityClassName: ""
+
+# Resources
+resources:
+  limits:
+    cpu: 100m
+    memory: 190Mi
+  requests:
+    cpu: 10m
+    memory: 32Mi
+
+# Liveness and readiness probes
+livenessProbe:
+  failureThreshold: 3
+  httpGet:
+    httpHeaders: []
+    path: /healthz
+    port: 8080
+    scheme: HTTP
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  successThreshold: 1
+  timeoutSeconds: 5
+
+readinessProbe:
+  failureThreshold: 3
+  httpGet:
+    httpHeaders: []
+    path: /
+    port: 8080
+    scheme: HTTP
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  successThreshold: 1
+  timeoutSeconds: 5
+
+# ServiceMonitor configuration for Prometheus
+prometheus:
+  monitor:
+    enabled: true
+    additionalLabels:
+      app.kubernetes.io/part-of: observability-stack
+      monitoring: prometheus
+    namespace: ""
+    jobLabel: ""
+    interval: 30s
+    scrapeTimeout: 10s
+    path: /metrics
+    relabelings:
+      - sourceLabels: [__meta_kubernetes_pod_node_name]
+        targetLabel: instance
+      - sourceLabels: [__meta_kubernetes_namespace]
+        targetLabel: kubernetes_namespace
+      - sourceLabels: [__meta_kubernetes_pod_name]
+        targetLabel: kubernetes_pod_name
+    metricRelabelings: []
+    scheme: http
+    tlsConfig: {}
+
+# Kube State Metrics specific configuration
+extraArgs:
+  - --metric-labels-allowlist=pods=[*],nodes=[*]
+  - --metric-annotations-allowlist=nodes=[cluster-autoscaler.kubernetes.io/safe-to-evict],pods=[*]
+
+# Collectors to enable (default: all enabled)
+collectors:
+  - certificatesigningrequests
+  - configmaps
+  - cronjobs
+  - daemonsets
+  - deployments
+  - endpoints
+  - horizontalpodautoscalers
+  - ingresses
+  - jobs
+  - leases
+  - limitranges
+  - mutatingwebhookconfigurations
+  - namespaces
+  - networkpolicies
+  - nodes
+  - persistentvolumeclaims
+  - persistentvolumes
+  - poddisruptionbudgets
+  - pods
+  - replicasets
+  - replicationcontrollers
+  - resourcequotas
+  - secrets
+  - services
+  - statefulsets
+  - storageclasses
+  - validatingwebhookconfigurations
+  - volumeattachments
+
+# Namespace configuration
+namespaces: "" # Monitor all namespaces
+namespacesDenylist: ""
+namespacesOverride: []
+
+# Label and annotation selectors
+labelSelectorOverride: ""
+fieldSelectorOverride: ""
+
+# Vertical Pod Autoscaler
+verticalPodAutoscaler:
+  enabled: false
+  controlledResources: []
+  maxAllowed: {}
+  minAllowed: {}
+
+# Horizontal Pod Autoscaler
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# Network Policy
+networkPolicy:
+  enabled: false

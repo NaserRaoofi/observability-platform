@@ -297,3 +297,61 @@ data "aws_iam_policy_document" "grafana_observability" {
     resources = ["*"]
   }
 }
+
+# ===============================================================================
+# TEMPO S3 POLICY
+# ===============================================================================
+
+data "aws_iam_policy_document" "tempo_s3" {
+  count = var.create_tempo_resources ? 1 : 0
+
+  # Object-level access for trace storage
+  statement {
+    sid    = "TempoS3ObjectAccess"
+    effect = "Allow"
+
+    actions = [
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:DeleteObject",
+      "s3:GetObjectVersion"
+    ]
+
+    resources = [
+      local.tempo_bucket_arn != null ? "${local.tempo_bucket_arn}/*" : ""
+    ]
+  }
+
+  # Bucket-level access for Tempo
+  statement {
+    sid    = "TempoS3BucketAccess"
+    effect = "Allow"
+
+    actions = [
+      "s3:ListBucket",
+      "s3:GetBucketLocation",
+      "s3:ListBucketMultipartUploads",
+      "s3:AbortMultipartUpload"
+    ]
+
+    resources = [
+      local.tempo_bucket_arn != null ? local.tempo_bucket_arn : ""
+    ]
+  }
+
+  # S3 multipart upload operations for large traces
+  statement {
+    sid    = "TempoS3MultipartAccess"
+    effect = "Allow"
+
+    actions = [
+      "s3:ListMultipartUploadParts",
+      "s3:CompleteMultipartUpload",
+      "s3:AbortMultipartUpload"
+    ]
+
+    resources = [
+      local.tempo_bucket_arn != null ? "${local.tempo_bucket_arn}/*" : ""
+    ]
+  }
+}

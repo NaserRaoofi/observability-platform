@@ -1,0 +1,302 @@
+# Redis Exporter Base Configuration
+# Uses official prometheus-community/prometheus-redis-exporter chart
+
+# Global settings
+nameOverride: "redis-exporter"
+fullnameOverride: "redis-exporter"
+
+# Image configuration
+image:
+  registry: docker.io
+  repository: oliver006/redis_exporter
+  # tag: "" # Use chart default
+  pullPolicy: IfNotPresent
+
+# Security context
+securityContext:
+  enabled: true
+  fsGroup: 65534
+  runAsGroup: 65534
+  runAsNonRoot: true
+  runAsUser: 65534
+
+# Container security context
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 9121
+  targetPort: 9121
+  annotations: {}
+  labels: {}
+
+# ServiceAccount configuration
+serviceAccount:
+  create: true
+  automount: false # No Kubernetes API access needed
+  annotations: {}
+  name: "redis-exporter"
+  imagePullSecrets: []
+
+# RBAC configuration
+rbac:
+  create: false # No Kubernetes API access needed
+
+# Pod Security Policy
+podSecurityPolicy:
+  enabled: false
+
+# Deployment configuration
+replicas: 1
+revisionHistoryLimit: 10
+
+# Pod configuration
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9121"
+
+podLabels:
+  app.kubernetes.io/part-of: observability-stack
+
+# Node selection and scheduling
+nodeSelector:
+  kubernetes.io/os: linux
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - redis-exporter
+          topologyKey: kubernetes.io/hostname
+
+# Priority class
+priorityClassName: ""
+
+# Resources
+resources:
+  limits:
+    cpu: 100m
+    memory: 128Mi
+  requests:
+    cpu: 10m
+    memory: 24Mi
+
+# Liveness and readiness probes
+livenessProbe:
+  failureThreshold: 3
+  httpGet:
+    httpHeaders: []
+    path: /health
+    port: 9121
+    scheme: HTTP
+  initialDelaySeconds: 15
+  periodSeconds: 10
+  successThreshold: 1
+  timeoutSeconds: 5
+
+readinessProbe:
+  failureThreshold: 3
+  httpGet:
+    httpHeaders: []
+    path: /health
+    port: 9121
+    scheme: HTTP
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  successThreshold: 1
+  timeoutSeconds: 3
+
+# ServiceMonitor configuration for Prometheus
+prometheus:
+  monitor:
+    enabled: true
+    additionalLabels:
+      app.kubernetes.io/part-of: observability-stack
+      monitoring: prometheus
+    namespace: ""
+    jobLabel: ""
+    interval: 30s
+    scrapeTimeout: 10s
+    path: /metrics
+    relabelings:
+      - sourceLabels: [__meta_kubernetes_namespace]
+        targetLabel: kubernetes_namespace
+      - sourceLabels: [__meta_kubernetes_pod_name]
+        targetLabel: kubernetes_pod_name
+      - sourceLabels: [__meta_kubernetes_pod_label_redis_instance]
+        targetLabel: redis_instance
+    metricRelabelings: []
+    scheme: http
+    tlsConfig: {}
+
+# Redis connection configuration
+redisAddress: "redis://redis-master.default.svc.cluster.local:6379"
+
+# Alternative: Multiple Redis instances
+redisAddressConfig: |
+  # Primary Redis instance
+  redis://redis-master.default.svc.cluster.local:6379
+  # Redis Sentinel (if using)
+  # redis-sentinel://redis-sentinel.default.svc.cluster.local:26379
+  # Redis Cluster nodes (if using cluster mode)
+  # redis://redis-node-1.default.svc.cluster.local:6379
+  # redis://redis-node-2.default.svc.cluster.local:6379
+
+# Redis authentication
+auth:
+  # Redis password (use secret for production)
+  enabled: false
+  secret:
+    name: ""
+    key: ""
+  # Alternative: direct password (not recommended for production)
+  redisPassword: ""
+  # Redis username (Redis 6.0+)
+  redisUser: ""
+
+# SSL/TLS configuration
+ssl:
+  enabled: false
+  insecureSkipVerify: false
+  caCertFile: ""
+  clientCertFile: ""
+  clientKeyFile: ""
+
+# Redis Exporter specific configuration
+exporterConfig:
+  # Log level: debug, info, warn, error
+  logLevel: "info"
+
+  # Log format: logfmt, json
+  logFormat: "logfmt"
+
+  # Namespace for Redis metrics
+  namespace: "redis"
+
+  # Connection timeout
+  connectionTimeout: "15s"
+
+  # Include system metrics
+  includeSystemMetrics: true
+
+  # Check keys and key groups
+  checkKeys: ""
+  checkKeyGroups: ""
+
+  # Check single keys
+  checkSingleKeys: ""
+
+  # Check streams
+  checkStreams: ""
+
+  # Check single streams
+  checkSingleStreams: ""
+
+  # Max distinct key groups
+  maxDistinctKeyGroups: "100"
+
+  # Export client list
+  exportClientList: false
+
+  # Export client port
+  exportClientPort: false
+
+  # Include config metrics
+  includeConfigMetrics: false
+
+  # Redis instance label
+  redisMetricsOnly: false
+
+  # Ping on connect
+  pingOnConnect: true
+
+  # Incl system metrics
+  inclSystemMetrics: false
+
+# Environment variables
+env:
+  - name: REDIS_ADDR
+    value: "redis://redis-master.default.svc.cluster.local:6379"
+  - name: REDIS_EXPORTER_LOG_FORMAT
+    value: "logfmt"
+  - name: REDIS_EXPORTER_DEBUG
+    value: "false"
+  # - name: REDIS_PASSWORD
+  #   valueFrom:
+  #     secretKeyRef:
+  #       name: redis-secret
+  #       key: password
+
+# Extra command line arguments
+extraArgs: []
+  # - --redis.addr=redis://redis:6379
+  # - --redis.password=$(REDIS_PASSWORD)
+  # - --namespace=myapp
+  # - --check-keys=user:*
+  # - --check-single-keys=db:*:stats
+
+# ConfigMap for configuration file
+configMap:
+  enabled: false
+  data: {}
+
+# Secret for sensitive data
+secret:
+  enabled: false
+  data: {}
+
+# Additional volumes
+extraVolumes: []
+
+# Additional volume mounts
+extraVolumeMounts: []
+
+# Network Policy
+networkPolicy:
+  enabled: false
+  ingress: []
+  egress:
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 6379 # Redis default port
+        - protocol: TCP
+          port: 26379 # Redis Sentinel port
+
+# Ingress configuration
+ingress:
+  enabled: false
+
+# Vertical Pod Autoscaler
+verticalPodAutoscaler:
+  enabled: false
+
+# Horizontal Pod Autoscaler
+autoscaling:
+  enabled: false
+
+# Pod Disruption Budget
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  maxUnavailable: ""
+
+# Init containers
+initContainers: []
+
+# Sidecar containers
+sidecars: []

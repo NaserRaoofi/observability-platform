@@ -1,0 +1,256 @@
+# Sloth Configuration
+# SLI/SLO monitoring and alerting generator
+
+# Global settings
+nameOverride: "sloth"
+fullnameOverride: "sloth"
+
+# Image configuration
+image:
+  repository: slok/sloth
+  tag: v0.11.0
+  pullPolicy: IfNotPresent
+
+# Service account
+serviceAccount:
+  create: true
+  name: sloth
+  annotations: {}
+
+# Security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  runAsGroup: 65534
+  fsGroup: 65534
+
+# Container security context
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# Resource configuration
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Replicas
+replicaCount: 1
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 8080
+
+# ServiceMonitor for Prometheus scraping
+serviceMonitor:
+  enabled: true
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+  interval: 30s
+  scrapeTimeout: 10s
+
+# Pod annotations
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+  prometheus.io/path: "/metrics"
+
+# Pod labels
+podLabels:
+  app.kubernetes.io/part-of: observability-stack
+
+# Sloth configuration
+config:
+  # Prometheus configuration
+  prometheus:
+    # URL of Prometheus server (will be updated to use Mimir gateway)
+    url: "http://mimir-gateway.observability.svc.cluster.local:8080/prometheus"
+
+  # Default SLO configuration
+  slo:
+    # Default error budget burn rate for alerts
+    defaultErrorBudget: 0.1 # 10% error budget
+
+    # Default time windows for SLI measurement
+    defaultTimeWindows:
+      - "5m"
+      - "30m"
+      - "1h"
+      - "6h"
+      - "1d"
+      - "3d"
+
+# Custom Resource Definitions
+crds:
+  # Install Sloth CRDs
+  create: true
+
+# RBAC configuration
+rbac:
+  create: true
+
+# Cluster role configuration
+clusterRole:
+  create: true
+
+# Additional volumes (for custom SLO definitions)
+volumes:
+  - name: slo-config
+    configMap:
+      name: sloth-slo-definitions
+      optional: true
+
+# Volume mounts
+volumeMounts:
+  - name: slo-config
+    mountPath: /etc/sloth/slos
+    readOnly: true
+
+# Environment variables
+env:
+  - name: SLOTH_PROMETHEUS_URL
+    value: "http://mimir-gateway.observability.svc.cluster.local:8080/prometheus"
+  - name: SLOTH_LOG_LEVEL
+    value: "info"
+  - name: SLOTH_METRICS_LISTEN_ADDRESS
+    value: ":8080"
+
+# ConfigMap with sample SLO definitions
+sloDefinitions:
+  # Enable creation of sample SLOs
+  create: true
+
+  # Sample SLO configurations
+  definitions:
+    # Mimir availability SLO
+    mimir-availability:
+      apiVersion: sloth.slok.dev/v1
+      kind: PrometheusServiceLevel
+      metadata:
+        name: mimir-availability
+        namespace: observability
+        labels:
+          app.kubernetes.io/part-of: observability-stack
+      spec:
+        service: "mimir"
+        labels:
+          team: "observability"
+          component: "metrics"
+        slos:
+          - name: "requests-availability"
+            objective: 99.9
+            description: "99.9% of requests should be successful"
+            sli:
+              events:
+                errorQuery: 'sum(rate(mimir_request_errors_total{job="mimir-gateway"}[5m]))'
+                totalQuery: 'sum(rate(mimir_request_total{job="mimir-gateway"}[5m]))'
+            alerting:
+              name: MimirRequestsAvailability
+              labels:
+                category: availability
+                severity: critical
+              annotations:
+                summary: "Mimir requests availability is below SLO"
+                description: "Mimir availability is {{ $value }}% which is below the 99.9% SLO"
+
+    # Loki availability SLO
+    loki-availability:
+      apiVersion: sloth.slok.dev/v1
+      kind: PrometheusServiceLevel
+      metadata:
+        name: loki-availability
+        namespace: observability
+        labels:
+          app.kubernetes.io/part-of: observability-stack
+      spec:
+        service: "loki"
+        labels:
+          team: "observability"
+          component: "logs"
+        slos:
+          - name: "requests-availability"
+            objective: 99.5
+            description: "99.5% of log ingestion requests should be successful"
+            sli:
+              events:
+                errorQuery: 'sum(rate(loki_request_errors_total{job="loki-gateway",route!="loki_api_v1_query"}[5m]))'
+                totalQuery: 'sum(rate(loki_request_total{job="loki-gateway",route!="loki_api_v1_query"}[5m]))'
+            alerting:
+              name: LokiRequestsAvailability
+              labels:
+                category: availability
+                severity: warning
+              annotations:
+                summary: "Loki requests availability is below SLO"
+                description: "Loki availability is {{ $value }}% which is below the 99.5% SLO"
+
+    # Prometheus Agent data freshness SLO
+    prometheus-freshness:
+      apiVersion: sloth.slok.dev/v1
+      kind: PrometheusServiceLevel
+      metadata:
+        name: prometheus-freshness
+        namespace: observability
+        labels:
+          app.kubernetes.io/part-of: observability-stack
+      spec:
+        service: "prometheus-agent"
+        labels:
+          team: "observability"
+          component: "metrics-collection"
+        slos:
+          - name: "data-freshness"
+            objective: 99.0
+            description: "99% of metrics should be fresher than 5 minutes"
+            sli:
+              events:
+                errorQuery: 'sum(prometheus_tsdb_symbol_table_size_bytes{job="prometheus-agent"} < bool (time() - 300))'
+                totalQuery: 'sum(prometheus_tsdb_symbol_table_size_bytes{job="prometheus-agent"} * 0 + 1)'
+            alerting:
+              name: PrometheusDataFreshness
+              labels:
+                category: freshness
+                severity: warning
+              annotations:
+                summary: "Prometheus data is stale"
+                description: "Prometheus data freshness is below SLO threshold"
+
+# Ingress configuration (optional)
+ingress:
+  enabled: false
+
+# Network policy (optional)
+networkPolicy:
+  enabled: false
+
+# Priority class
+priorityClassName: ""
+
+# Pod disruption budget
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+# Horizontal Pod Autoscaler
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80

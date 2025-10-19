@@ -1,0 +1,107 @@
+apiVersion: sloth.slok.dev/v1
+kind: PrometheusServiceLevel
+metadata:
+  name: tempo-slos
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: tempo
+    app.kubernetes.io/component: slo
+    app.kubernetes.io/part-of: observability-stack
+spec:
+  service: "tempo"
+  labels:
+    team: "platform"
+    environment: "dev"
+    component: "tracing"
+  slos:
+    # SLO 1: Trace Ingestion Availability
+    # Measures the success rate of trace ingestion requests
+    - name: "ingestion-availability"
+      objective: 99.5
+      description: "99.5% of trace ingestion requests should succeed"
+      sli:
+        events:
+          # Error query: failed ingestion requests (5xx, 4xx errors)
+          errorQuery: |
+            sum(rate(tempo_distributor_ingestion_requests_total{status_code!~"2.."}[5m]))
+          # Total query: all ingestion requests
+          totalQuery: |
+            sum(rate(tempo_distributor_ingestion_requests_total[5m]))
+      alerting:
+        name: "TempoIngestionAvailability"
+        labels:
+          category: "availability"
+          severity: "critical"
+        annotations:
+          summary: "Tempo trace ingestion availability is below SLO"
+          description: "Tempo trace ingestion success rate is {{ $value }}%, which is below the 99.5% SLO"
+          runbook_url: "https://runbooks.observability.dev/tempo/ingestion-failures"
+
+    # SLO 2: Query Availability
+    # Measures the success rate of trace query requests
+    - name: "query-availability"
+      objective: 99.0
+      description: "99% of trace query requests should succeed"
+      sli:
+        events:
+          # Error query: failed query requests
+          errorQuery: |
+            sum(rate(tempo_query_frontend_requests_total{status_code!~"2.."}[5m]))
+          # Total query: all query requests
+          totalQuery: |
+            sum(rate(tempo_query_frontend_requests_total[5m]))
+      alerting:
+        name: "TempoQueryAvailability"
+        labels:
+          category: "availability"
+          severity: "high"
+        annotations:
+          summary: "Tempo query availability is below SLO"
+          description: "Tempo query success rate is {{ $value }}%, which is below the 99% SLO"
+          runbook_url: "https://runbooks.observability.dev/tempo/query-failures"
+
+    # SLO 3: Query Latency
+    # Measures the response time of trace queries
+    - name: "query-latency"
+      objective: 95.0
+      description: "95% of trace queries should complete within 2 seconds"
+      sli:
+        events:
+          # Error query: slow queries (>2s)
+          errorQuery: |
+            sum(rate(tempo_query_frontend_request_duration_seconds_bucket{le="2.0"}[5m]))
+          # Total query: all queries
+          totalQuery: |
+            sum(rate(tempo_query_frontend_request_duration_seconds_count[5m]))
+      alerting:
+        name: "TempoQueryLatency"
+        labels:
+          category: "latency"
+          severity: "medium"
+        annotations:
+          summary: "Tempo query latency is above SLO threshold"
+          description: "{{ $value }}% of Tempo queries are completing within 2s, which is below the 95% SLO"
+          runbook_url: "https://runbooks.observability.dev/tempo/high-latency"
+
+    # SLO 4: Compaction Success
+    # Measures the success rate of trace block compaction
+    - name: "compaction-success"
+      objective: 99.0
+      description: "99% of trace compaction operations should succeed"
+      sli:
+        events:
+          # Error query: failed compactions
+          errorQuery: |
+            sum(rate(tempo_compactor_compaction_errors_total[5m]))
+          # Total query: all compaction attempts
+          totalQuery: |
+            sum(rate(tempo_compactor_compaction_total[5m]))
+      alerting:
+        name: "TempoCompactionSuccess"
+        labels:
+          category: "reliability"
+          severity: "medium"
+        annotations:
+          summary: "Tempo compaction success rate is below SLO"
+          description: "Tempo compaction success rate is {{ $value }}%, which is below the 99% SLO"
+          runbook_url: "https://runbooks.observability.dev/tempo/compaction-failures"

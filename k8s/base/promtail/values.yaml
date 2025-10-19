@@ -1,0 +1,271 @@
+# Promtail Configuration
+# Log collection agent for Kubernetes pods
+
+# Global settings
+nameOverride: "promtail"
+fullnameOverride: "promtail"
+
+# Promtail configuration
+config:
+  # Global Promtail configuration
+  server:
+    http_listen_port: 3101
+    grpc_listen_port: 0
+
+  # Position file to track log positions
+  positions:
+    filename: /run/promtail/positions.yaml
+
+  # Client configuration - where to send logs
+  clients:
+    - url: http://loki-gateway.observability.svc.cluster.local/loki/api/v1/push
+      timeout: 30s
+      backoff_config:
+        min_period: 500ms
+        max_period: 5m
+        max_retries: 10
+
+  # Scrape configurations for different log sources
+  scrape_configs:
+    # Kubernetes pod logs
+    - job_name: kubernetes-pods
+      kubernetes_sd_configs:
+        - role: pod
+
+      pipeline_stages:
+        # Parse container logs in JSON format
+        - cri: {}
+
+        # Add labels from Kubernetes metadata
+        - labeldrop:
+            - filename
+
+        # Extract log level from common formats
+        - regex:
+            expression: "(?i)(?P<level>(debug|info|warn|warning|error|fatal|panic))"
+            source: log
+        - labels:
+            level:
+
+      relabel_configs:
+        # Only scrape pods that are running
+        - source_labels: [__meta_kubernetes_pod_phase]
+          action: keep
+          regex: Running
+
+        # Ignore promtail's own logs to avoid loops
+        - source_labels: [__meta_kubernetes_pod_label_name]
+          action: drop
+          regex: promtail
+
+        # Add namespace label
+        - source_labels: [__meta_kubernetes_pod_namespace]
+          target_label: namespace
+
+        # Add pod name label
+        - source_labels: [__meta_kubernetes_pod_name]
+          target_label: pod
+
+        # Add container name label
+        - source_labels: [__meta_kubernetes_pod_container_name]
+          target_label: container
+
+        # Add app label if it exists
+        - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+          target_label: app
+
+        # Add component label if it exists
+        - source_labels:
+            [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+          target_label: component
+
+        # Add instance label
+        - source_labels:
+            [__meta_kubernetes_pod_label_app_kubernetes_io_instance]
+          target_label: instance
+
+        # Set the log path
+        - source_labels:
+            [__meta_kubernetes_pod_uid, __meta_kubernetes_pod_container_name]
+          target_label: __path__
+          regex: (.+);(.+)
+          replacement: /var/log/pods/*${1}/*/${2}/*.log
+
+    # Kubernetes events (optional)
+    - job_name: kubernetes-events
+      kubernetes_sd_configs:
+        - role: pod
+          namespaces:
+            names: [kube-system, observability, default]
+
+      pipeline_stages:
+        - cri: {}
+        - json:
+            expressions:
+              reason: reason
+              message: message
+              kind: involvedObject.kind
+              name: involvedObject.name
+        - labels:
+            reason:
+            kind:
+
+      relabel_configs:
+        - source_labels: [__meta_kubernetes_pod_label_component]
+          action: keep
+          regex: kube-apiserver
+
+        - source_labels: [__meta_kubernetes_pod_namespace]
+          target_label: namespace
+
+        - target_label: job
+          replacement: kubernetes-events
+
+    # System logs from nodes (if using hostPath)
+    - job_name: system-logs
+      static_configs:
+        - targets: [localhost]
+          labels:
+            job: system-logs
+            host: ${HOSTNAME}
+
+      pipeline_stages:
+        - regex:
+            expression: '^(?P<timestamp>\S+\s+\S+\s+\S+)\s+(?P<host>\S+)\s+(?P<service>\S+)(?:\[(?P<pid>\d+)\])?\:\s*(?P<message>.*)$'
+        - labels:
+            host:
+            service:
+        - timestamp:
+            source: timestamp
+            format: Jan 02 15:04:05
+
+      relabel_configs:
+        - target_label: __path__
+          replacement: /var/log/messages
+
+# Deployment configuration
+daemonset:
+  enabled: true
+
+# Security context
+securityContext:
+  privileged: false
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 0 # Required to read container logs
+  capabilities:
+    drop:
+      - ALL
+
+# Container security context
+containerSecurityContext:
+  privileged: false
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: false # Required to read logs from /var/log
+  runAsUser: 0
+  capabilities:
+    drop:
+      - ALL
+
+# Resource configuration
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+# Volume mounts for accessing logs
+volumeMounts:
+  - name: varlog
+    mountPath: /var/log
+    readOnly: true
+  - name: varlibdockercontainers
+    mountPath: /var/lib/docker/containers
+    readOnly: true
+  - name: run-promtail
+    mountPath: /run/promtail
+
+volumes:
+  # Host log directories
+  - name: varlog
+    hostPath:
+      path: /var/log
+  - name: varlibdockercontainers
+    hostPath:
+      path: /var/lib/docker/containers
+  # Promtail state directory
+  - name: run-promtail
+    emptyDir: {}
+
+# Node selector to ensure promtail runs on all nodes
+nodeSelector: {}
+
+# Tolerations to run on all nodes including masters
+tolerations:
+  - effect: NoSchedule
+    operator: Exists
+  - effect: NoExecute
+    operator: Exists
+
+# Service account (no IRSA needed for Promtail)
+serviceAccount:
+  create: true
+  name: promtail
+
+# Service configuration
+service:
+  enabled: true
+  type: ClusterIP
+  port: 3101
+
+# ServiceMonitor for Prometheus scraping
+serviceMonitor:
+  enabled: true
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+  interval: 30s
+  scrapeTimeout: 10s
+  path: /metrics
+
+# Pod labels
+podLabels:
+  app.kubernetes.io/part-of: observability-stack
+
+# Annotations
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "3101"
+  prometheus.io/path: "/metrics"
+
+# Update strategy
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 1
+
+# Pod security policy (if enabled in cluster)
+podSecurityPolicy:
+  enabled: false
+
+# Network policy (optional)
+networkPolicy:
+  enabled: false
+
+# Priority class (optional)
+priorityClassName: ""
+
+# Extra environment variables
+extraEnv:
+  - name: HOSTNAME
+    valueFrom:
+      fieldRef:
+        fieldPath: spec.nodeName
+
+# Log retention in promtail (positions file cleanup)
+logRetention:
+  enabled: true
+  days: 7
