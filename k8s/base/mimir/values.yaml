@@ -1,0 +1,428 @@
+# Mimir Configuration
+# Uses official grafana/mimir-distributed chart
+
+# Global settings
+nameOverride: "mimir"
+fullnameOverride: "mimir"
+
+# Mimir configuration
+mimir:
+  # Storage configuration for AWS S3 + DynamoDB
+  structuredConfig:
+    # Common configuration
+    common:
+      storage:
+        backend: s3
+        s3:
+          endpoint: "" # Use default AWS S3 endpoint
+          region: us-west-2
+          bucket_name: "observability-mimir-metrics" # Override with Terraform output
+          sse:
+            type: SSE-KMS
+            kms_key_id: "" # Populate with Terraform KMS key ID
+
+    # Blocks storage configuration
+    blocks_storage:
+      backend: s3
+      s3:
+        endpoint: ""
+        region: us-west-2
+        bucket_name: "observability-mimir-metrics"
+        sse:
+          type: SSE-KMS
+          kms_key_id: ""
+
+    # Index Gateway - DynamoDB configuration for fast querying
+    index_gateway:
+      backend: dynamodb
+      dynamodb:
+        region: us-west-2
+        table_name: "observability-dev-mimir-index" # Override with Terraform output
+        consistent_read: true
+        max_retries: 3
+        backoff:
+          min_backoff: 100ms
+          max_backoff: 5s
+
+      ring:
+        kvstore:
+          store: memberlist
+
+    # Ingester configuration
+    ingester:
+      ring:
+        kvstore:
+          store: memberlist
+        replication_factor: 3
+
+    # Distributor configuration
+    distributor:
+      ring:
+        kvstore:
+          store: memberlist
+
+    # Query frontend configuration
+    query_frontend:
+      # Cache configuration
+      results_cache:
+        backend: redis
+        redis:
+          endpoint: "redis-master.default.svc.cluster.local:6379"
+          timeout: 500ms
+
+    # Querier configuration
+    querier:
+      # Cache configuration
+      metadata_cache:
+        backend: redis
+        redis:
+          endpoint: "redis-master.default.svc.cluster.local:6379"
+          timeout: 500ms
+
+    # Store gateway configuration
+    store_gateway:
+      sharding_ring:
+        kvstore:
+          store: memberlist
+
+    # Compactor configuration
+    compactor:
+      sharding_ring:
+        kvstore:
+          store: memberlist
+
+    # Ruler configuration (for recording rules and alerts)
+    ruler:
+      rule_path: /data
+      ring:
+        kvstore:
+          store: memberlist
+
+    # Alertmanager configuration
+    alertmanager:
+      sharding_ring:
+        kvstore:
+          store: memberlist
+      external_url: http://alertmanager.observability.svc.cluster.local
+
+    # Limits configuration
+    limits:
+      # Ingestion limits
+      ingestion_rate: 50000
+      ingestion_burst_size: 100000
+      max_global_series_per_user: 10000000
+      max_global_series_per_metric: 100000
+
+      # Query limits
+      max_query_parallelism: 32
+      max_query_length: 32d
+      max_partial_query_length: 7d
+
+      # Compaction limits
+      compactor_blocks_retention_period: 2555d # ~7 years
+
+# Global image configuration
+image:
+  registry: grafana
+  repository: mimir
+  # tag: "" # Use chart default
+  pullPolicy: IfNotPresent
+
+# Service Account with IRSA for S3 and DynamoDB access
+serviceAccount:
+  create: true
+  automount: true
+  annotations:
+    # IRSA annotation for AWS access (populate with Terraform output)
+    # eks.amazonaws.com/role-arn: ${mimir_irsa_role_arn}
+  name: "mimir"
+
+# RBAC configuration
+rbac:
+  create: true
+
+# Security contexts
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  fsGroup: 65534
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+# Components configuration
+gateway:
+  enabled: true
+  replicas: 2
+
+  service:
+    type: ClusterIP
+    port: 8080
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+
+distributor:
+  replicas: 3
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+
+ingester:
+  replicas: 3
+
+  # Persistent volume for WAL
+  persistentVolume:
+    enabled: true
+    size: 50Gi
+    storageClass: "gp3" # Use GP3 for better performance
+
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+
+querier:
+  replicas: 2
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+
+query_frontend:
+  replicas: 2
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+
+store_gateway:
+  replicas: 3
+
+  # Persistent volume for cache
+  persistentVolume:
+    enabled: true
+    size: 100Gi
+    storageClass: "gp3"
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+
+compactor:
+  replicas: 1
+
+  # Persistent volume for temporary data
+  persistentVolume:
+    enabled: true
+    size: 50Gi
+    storageClass: "gp3"
+
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+
+ruler:
+  enabled: true
+  replicas: 2
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+
+alertmanager:
+  enabled: true
+  replicas: 3
+
+  # Persistent volume for alerts
+  persistentVolume:
+    enabled: true
+    size: 10Gi
+    storageClass: "gp3"
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+
+# Nginx configuration for gateway
+nginx:
+  enabled: true
+  replicas: 2
+
+  service:
+    type: LoadBalancer # Change to ClusterIP if using ingress
+    port: 80
+
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+# Ingress configuration
+ingress:
+  enabled: false
+  # ingressClassName: nginx
+  # hosts:
+  #   - host: mimir.example.com
+  #     paths:
+  #       - path: /
+  #         pathType: Prefix
+  # tls: []
+
+# Monitoring configuration
+serviceMonitor:
+  enabled: true
+  additionalLabels:
+    app.kubernetes.io/part-of: observability-stack
+  interval: 30s
+  scrapeTimeout: 10s
+
+# Pod Disruption Budgets
+podDisruptionBudget:
+  gateway:
+    minAvailable: 1
+  distributor:
+    minAvailable: 2
+  ingester:
+    minAvailable: 2
+  querier:
+    minAvailable: 1
+  query_frontend:
+    minAvailable: 1
+  store_gateway:
+    minAvailable: 2
+
+# Node selection and affinity
+nodeSelector:
+  kubernetes.io/os: linux
+
+tolerations: []
+
+# Anti-affinity for high availability
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - mimir
+          topologyKey: kubernetes.io/hostname
+
+# Environment variables
+env:
+  - name: AWS_REGION
+    value: "us-west-2"
+  # IRSA will automatically provide these:
+  # - name: AWS_ROLE_ARN
+  # - name: AWS_WEB_IDENTITY_TOKEN_FILE
+
+# Extra volumes and volume mounts
+extraVolumes: []
+extraVolumeMounts: []
+
+# Network Policy
+networkPolicy:
+  enabled: false
+
+# Autoscaling
+autoscaling:
+  enabled: false
+  # Configure HPA for individual components as needed
+  # distributor:
+  #   enabled: true
+  #   minReplicas: 3
+  #   maxReplicas: 10
+  #   targetCPUUtilizationPercentage: 80

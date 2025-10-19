@@ -1,0 +1,275 @@
+# Blackbox Exporter Base Configuration
+# Uses official prometheus-community/prometheus-blackbox-exporter chart
+
+# Global settings
+nameOverride: "blackbox-exporter"
+fullnameOverride: "blackbox-exporter"
+
+# Image configuration
+image:
+  registry: quay.io
+  repository: prometheus/blackbox-exporter
+  # tag: "" # Use chart default
+  pullPolicy: IfNotPresent
+
+# Security context
+securityContext:
+  fsGroup: 65534
+  runAsGroup: 65534
+  runAsNonRoot: true
+  runAsUser: 65534
+
+# Container security context
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 9115
+  targetPort: 9115
+  annotations: {}
+  labels: {}
+
+# ServiceAccount configuration
+serviceAccount:
+  create: true
+  automount: false # No need for Kubernetes API access
+  annotations: {}
+  name: "blackbox-exporter"
+  imagePullSecrets: []
+
+# RBAC configuration
+rbac:
+  create: false # No Kubernetes API access needed
+
+# Pod Security Policy
+podSecurityPolicy:
+  enabled: false
+
+# Deployment configuration
+replicas: 1
+revisionHistoryLimit: 10
+
+# Pod configuration
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9115"
+
+podLabels:
+  app.kubernetes.io/part-of: observability-stack
+
+# Node selection and scheduling
+nodeSelector:
+  kubernetes.io/os: linux
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - blackbox-exporter
+          topologyKey: kubernetes.io/hostname
+
+# Priority class
+priorityClassName: ""
+
+# Resources
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 10m
+    memory: 50Mi
+
+# Liveness and readiness probes
+livenessProbe:
+  failureThreshold: 3
+  httpGet:
+    httpHeaders: []
+    path: /health
+    port: 9115
+    scheme: HTTP
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  successThreshold: 1
+  timeoutSeconds: 3
+
+readinessProbe:
+  failureThreshold: 3
+  httpGet:
+    httpHeaders: []
+    path: /health
+    port: 9115
+    scheme: HTTP
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  successThreshold: 1
+  timeoutSeconds: 3
+
+# ServiceMonitor configuration for Prometheus
+prometheus:
+  monitor:
+    enabled: true
+    additionalLabels:
+      app.kubernetes.io/part-of: observability-stack
+      monitoring: prometheus
+    namespace: ""
+    jobLabel: ""
+    interval: 30s
+    scrapeTimeout: 10s
+    path: /metrics
+    relabelings:
+      - sourceLabels: [__meta_kubernetes_namespace]
+        targetLabel: kubernetes_namespace
+      - sourceLabels: [__meta_kubernetes_pod_name]
+        targetLabel: kubernetes_pod_name
+    metricRelabelings: []
+    scheme: http
+    tlsConfig: {}
+
+# Blackbox Exporter Configuration
+config:
+  modules:
+    # HTTP 2xx module - Basic HTTP checks
+    http_2xx:
+      prober: http
+      timeout: 5s
+      http:
+        valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+        valid_status_codes: [200]
+        method: GET
+        headers:
+          User-Agent: "Blackbox Exporter"
+        no_follow_redirects: false
+        fail_if_ssl: false
+        fail_if_not_ssl: false
+        tls_config:
+          insecure_skip_verify: false
+        preferred_ip_protocol: "ip4"
+
+    # HTTP POST module - API endpoint checks
+    http_post_2xx:
+      prober: http
+      timeout: 5s
+      http:
+        valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+        valid_status_codes: [200, 201, 202]
+        method: POST
+        headers:
+          Content-Type: "application/json"
+          User-Agent: "Blackbox Exporter"
+        body: '{"health":"check"}'
+        no_follow_redirects: false
+        fail_if_ssl: false
+        fail_if_not_ssl: false
+        tls_config:
+          insecure_skip_verify: false
+        preferred_ip_protocol: "ip4"
+
+    # HTTPS module - SSL/TLS checks
+    http_2xx_ssl:
+      prober: http
+      timeout: 5s
+      http:
+        valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+        valid_status_codes: [200]
+        method: GET
+        headers:
+          User-Agent: "Blackbox Exporter"
+        no_follow_redirects: false
+        fail_if_ssl: false
+        fail_if_not_ssl: true
+        tls_config:
+          insecure_skip_verify: false
+        preferred_ip_protocol: "ip4"
+
+    # TCP connect module - Port connectivity
+    tcp_connect:
+      prober: tcp
+      timeout: 5s
+      tcp:
+        preferred_ip_protocol: "ip4"
+        source_ip_address: ""
+
+    # ICMP module - Ping checks
+    icmp:
+      prober: icmp
+      timeout: 5s
+      icmp:
+        preferred_ip_protocol: "ip4"
+        source_ip_address: ""
+        dont_fragment: false
+
+    # DNS module - DNS resolution checks
+    dns_udp:
+      prober: dns
+      timeout: 5s
+      dns:
+        preferred_ip_protocol: "ip4"
+        source_ip_address: ""
+        transport_protocol: "udp"
+        query_name: "kubernetes.default.svc.cluster.local"
+        query_type: "A"
+
+    # Kubernetes API health check
+    kubernetes_api:
+      prober: http
+      timeout: 5s
+      http:
+        valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+        valid_status_codes: [200, 401, 403] # 401/403 means API is responding
+        method: GET
+        headers:
+          User-Agent: "Blackbox Exporter"
+        no_follow_redirects: false
+        fail_if_ssl: false
+        fail_if_not_ssl: false
+        tls_config:
+          insecure_skip_verify: true # K8s API often uses self-signed certs
+        preferred_ip_protocol: "ip4"
+
+    # Grafana health check
+    grafana_health:
+      prober: http
+      timeout: 5s
+      http:
+        valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+        valid_status_codes: [200]
+        method: GET
+        headers:
+          User-Agent: "Blackbox Exporter"
+        no_follow_redirects: false
+        fail_if_ssl: false
+        fail_if_not_ssl: false
+        tls_config:
+          insecure_skip_verify: false
+        preferred_ip_protocol: "ip4"
+
+# Network Policy
+networkPolicy:
+  enabled: false
+
+# Ingress configuration
+ingress:
+  enabled: false
+
+# Vertical Pod Autoscaler
+verticalPodAutoscaler:
+  enabled: false
+
+# Horizontal Pod Autoscaler
+autoscaling:
+  enabled: false

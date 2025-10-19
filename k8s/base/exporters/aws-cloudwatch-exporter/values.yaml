@@ -1,0 +1,370 @@
+# AWS CloudWatch Exporter Base Configuration
+# Uses official prometheus-community/prometheus-cloudwatch-exporter chart
+
+# Global settings
+nameOverride: "aws-cloudwatch-exporter"
+fullnameOverride: "aws-cloudwatch-exporter"
+
+# Image configuration
+image:
+  registry: quay.io
+  repository: prometheus/cloudwatch-exporter
+  # tag: "" # Use chart default
+  pullPolicy: IfNotPresent
+
+# Security context
+securityContext:
+  fsGroup: 65534
+  runAsGroup: 65534
+  runAsNonRoot: true
+  runAsUser: 65534
+
+# Container security context
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 9106
+  targetPort: 9106
+  annotations: {}
+  labels: {}
+
+# ServiceAccount configuration with IRSA support
+serviceAccount:
+  create: true
+  automount: true # Need AWS credentials via IRSA
+  annotations:
+    # IRSA annotation for AWS CloudWatch access (populate with Terraform output)
+    # eks.amazonaws.com/role-arn: ${cloudwatch_exporter_irsa_role_arn}
+  name: "aws-cloudwatch-exporter"
+  imagePullSecrets: []
+
+# RBAC configuration
+rbac:
+  create: false # No Kubernetes API access needed
+
+# Pod Security Policy
+podSecurityPolicy:
+  enabled: false
+
+# Deployment configuration
+replicas: 1
+revisionHistoryLimit: 10
+
+# Pod configuration
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9106"
+
+podLabels:
+  app.kubernetes.io/part-of: observability-stack
+
+# Node selection and scheduling
+nodeSelector:
+  kubernetes.io/os: linux
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - aws-cloudwatch-exporter
+          topologyKey: kubernetes.io/hostname
+
+# Priority class
+priorityClassName: ""
+
+# Resources
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 50m
+    memory: 128Mi
+
+# Liveness and readiness probes
+livenessProbe:
+  failureThreshold: 3
+  httpGet:
+    httpHeaders: []
+    path: /health
+    port: 9106
+    scheme: HTTP
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  successThreshold: 1
+  timeoutSeconds: 5
+
+readinessProbe:
+  failureThreshold: 3
+  httpGet:
+    httpHeaders: []
+    path: /health
+    port: 9106
+    scheme: HTTP
+  initialDelaySeconds: 15
+  periodSeconds: 5
+  successThreshold: 1
+  timeoutSeconds: 3
+
+# ServiceMonitor configuration for Prometheus
+prometheus:
+  monitor:
+    enabled: true
+    additionalLabels:
+      app.kubernetes.io/part-of: observability-stack
+      monitoring: prometheus
+    namespace: ""
+    jobLabel: ""
+    interval: 60s # CloudWatch has lower frequency data
+    scrapeTimeout: 30s
+    path: /metrics
+    relabelings:
+      - sourceLabels: [__meta_kubernetes_namespace]
+        targetLabel: kubernetes_namespace
+      - sourceLabels: [__meta_kubernetes_pod_name]
+        targetLabel: kubernetes_pod_name
+      - sourceLabels: [job]
+        targetLabel: aws_region
+        replacement: "us-west-2" # Override with actual region
+    metricRelabelings:
+      # Add consistent labeling for AWS metrics
+      - sourceLabels: [__name__]
+        regex: "aws_.*"
+        targetLabel: metric_source
+        replacement: "cloudwatch"
+    scheme: http
+    tlsConfig: {}
+
+# AWS Configuration
+aws:
+  # AWS Region
+  region: "us-west-2"
+
+  # Role ARN for cross-account access (optional)
+  # roleArn: "arn:aws:iam::123456789012:role/CloudWatchExporterRole"
+
+  # STS Regional endpoints
+  stsRegionalEndpoints: true
+
+# CloudWatch Exporter Configuration
+config:
+  # Region for CloudWatch API calls
+  region: us-west-2
+
+  # Metrics collection configuration
+  metrics:
+    # EKS Cluster Metrics
+    - aws_namespace: AWS/EKS
+      aws_metric_name: cluster_failed_node_count
+      aws_dimensions: [ClusterName]
+      aws_statistics: [Average]
+
+    - aws_namespace: AWS/EKS
+      aws_metric_name: cluster_node_count
+      aws_dimensions: [ClusterName]
+      aws_statistics: [Average]
+
+    # EC2 Metrics (for EKS nodes)
+    - aws_namespace: AWS/EC2
+      aws_metric_name: CPUUtilization
+      aws_dimensions: [InstanceId]
+      aws_statistics: [Average, Maximum]
+
+    - aws_namespace: AWS/EC2
+      aws_metric_name: NetworkIn
+      aws_dimensions: [InstanceId]
+      aws_statistics: [Sum]
+
+    - aws_namespace: AWS/EC2
+      aws_metric_name: NetworkOut
+      aws_dimensions: [InstanceId]
+      aws_statistics: [Sum]
+
+    - aws_namespace: AWS/EC2
+      aws_metric_name: DiskReadBytes
+      aws_dimensions: [InstanceId]
+      aws_statistics: [Sum]
+
+    - aws_namespace: AWS/EC2
+      aws_metric_name: DiskWriteBytes
+      aws_dimensions: [InstanceId]
+      aws_statistics: [Sum]
+
+    # EBS Volume Metrics
+    - aws_namespace: AWS/EBS
+      aws_metric_name: VolumeReadOps
+      aws_dimensions: [VolumeId]
+      aws_statistics: [Sum]
+
+    - aws_namespace: AWS/EBS
+      aws_metric_name: VolumeWriteOps
+      aws_dimensions: [VolumeId]
+      aws_statistics: [Sum]
+
+    - aws_namespace: AWS/EBS
+      aws_metric_name: VolumeTotalReadTime
+      aws_dimensions: [VolumeId]
+      aws_statistics: [Sum]
+
+    - aws_namespace: AWS/EBS
+      aws_metric_name: VolumeTotalWriteTime
+      aws_dimensions: [VolumeId]
+      aws_statistics: [Sum]
+
+    # DynamoDB Metrics (for observability backend)
+    - aws_namespace: AWS/DynamoDB
+      aws_metric_name: ConsumedReadCapacityUnits
+      aws_dimensions: [TableName]
+      aws_statistics: [Sum, Average]
+
+    - aws_namespace: AWS/DynamoDB
+      aws_metric_name: ConsumedWriteCapacityUnits
+      aws_dimensions: [TableName]
+      aws_statistics: [Sum, Average]
+
+    - aws_namespace: AWS/DynamoDB
+      aws_metric_name: ThrottledRequests
+      aws_dimensions: [TableName, Operation]
+      aws_statistics: [Sum]
+
+    - aws_namespace: AWS/DynamoDB
+      aws_metric_name: SystemErrors
+      aws_dimensions: [TableName, Operation]
+      aws_statistics: [Sum]
+
+    # S3 Metrics (for observability storage)
+    - aws_namespace: AWS/S3
+      aws_metric_name: BucketSizeBytes
+      aws_dimensions: [BucketName, StorageType]
+      aws_statistics: [Average]
+
+    - aws_namespace: AWS/S3
+      aws_metric_name: NumberOfObjects
+      aws_dimensions: [BucketName, StorageType]
+      aws_statistics: [Average]
+
+    # Application Load Balancer (if using ALB)
+    - aws_namespace: AWS/ApplicationELB
+      aws_metric_name: RequestCount
+      aws_dimensions: [LoadBalancer]
+      aws_statistics: [Sum]
+
+    - aws_namespace: AWS/ApplicationELB
+      aws_metric_name: TargetResponseTime
+      aws_dimensions: [LoadBalancer]
+      aws_statistics: [Average]
+
+    - aws_namespace: AWS/ApplicationELB
+      aws_metric_name: HTTPCode_Target_2XX_Count
+      aws_dimensions: [LoadBalancer]
+      aws_statistics: [Sum]
+
+    - aws_namespace: AWS/ApplicationELB
+      aws_metric_name: HTTPCode_Target_4XX_Count
+      aws_dimensions: [LoadBalancer]
+      aws_statistics: [Sum]
+
+    - aws_namespace: AWS/ApplicationELB
+      aws_metric_name: HTTPCode_Target_5XX_Count
+      aws_dimensions: [LoadBalancer]
+      aws_statistics: [Sum]
+
+    # RDS Metrics (if using managed databases)
+    - aws_namespace: AWS/RDS
+      aws_metric_name: CPUUtilization
+      aws_dimensions: [DBInstanceIdentifier]
+      aws_statistics: [Average, Maximum]
+
+    - aws_namespace: AWS/RDS
+      aws_metric_name: DatabaseConnections
+      aws_dimensions: [DBInstanceIdentifier]
+      aws_statistics: [Average]
+
+    - aws_namespace: AWS/RDS
+      aws_metric_name: FreeableMemory
+      aws_dimensions: [DBInstanceIdentifier]
+      aws_statistics: [Average]
+
+    - aws_namespace: AWS/RDS
+      aws_metric_name: ReadLatency
+      aws_dimensions: [DBInstanceIdentifier]
+      aws_statistics: [Average]
+
+    - aws_namespace: AWS/RDS
+      aws_metric_name: WriteLatency
+      aws_dimensions: [DBInstanceIdentifier]
+      aws_statistics: [Average]
+
+# Environment variables
+env:
+  - name: AWS_REGION
+    value: "us-west-2"
+  # IRSA will automatically provide these:
+  # - name: AWS_ROLE_ARN
+  # - name: AWS_WEB_IDENTITY_TOKEN_FILE
+  # - name: AWS_ROLE_SESSION_NAME
+
+# Extra command line arguments
+extraArgs: []
+  # - --config.file=/etc/cloudwatch_exporter/config.yml
+  # - --log.level=info
+  # - --log.format=logfmt
+
+# ConfigMap for configuration file
+configMap:
+  enabled: true
+  # Configuration will be generated from config section above
+
+# Network Policy
+networkPolicy:
+  enabled: false
+  egress:
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443 # HTTPS for AWS API calls
+
+# Ingress configuration
+ingress:
+  enabled: false
+
+# Vertical Pod Autoscaler
+verticalPodAutoscaler:
+  enabled: false
+
+# Horizontal Pod Autoscaler
+autoscaling:
+  enabled: false
+
+# Pod Disruption Budget
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  maxUnavailable: ""
+
+# Extra volumes
+extraVolumes: []
+
+# Extra volume mounts
+extraVolumeMounts: []
+
+# Init containers
+initContainers: []
+
+# Sidecar containers
+sidecars: []

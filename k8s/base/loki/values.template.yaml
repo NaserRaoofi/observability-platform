@@ -1,0 +1,243 @@
+# Loki Configuration Template
+# This template is populated with Terraform outputs during deployment
+
+# Global settings
+nameOverride: "loki"
+fullnameOverride: "loki"
+
+# Loki configuration
+loki:
+  # Enable structured configuration
+  structuredConfig:
+    # Authentication and tenant configuration
+    auth_enabled: false # Single tenant mode for simplicity
+
+    # Server configuration
+    server:
+      http_listen_port: 3100
+      grpc_listen_port: 9095
+      grpc_server_max_recv_msg_size: 104857600 # 100MB
+      grpc_server_max_send_msg_size: 104857600 # 100MB
+
+    # Common configuration
+    common:
+      path_prefix: /var/loki
+      storage:
+        s3:
+          endpoint: ""
+          region: "${aws_region}"
+          bucketnames: "${loki_s3_bucket_name}"
+          sse_encryption: true
+          sse:
+            type: SSE-KMS
+            kms_key_id: "${kms_key_id}"
+      ring:
+        kvstore:
+          store: memberlist
+        instance_addr: 127.0.0.1
+
+    # Memberlist configuration for clustering
+    memberlist:
+      join_members:
+        - loki-memberlist
+
+    # Ingester configuration
+    ingester:
+      lifecycler:
+        ring:
+          kvstore:
+            store: memberlist
+          replication_factor: 3
+        final_sleep: 0s
+      chunk_idle_period: 5m
+      chunk_retain_period: 30s
+      max_transfer_retries: 0
+      wal:
+        enabled: true
+        dir: /var/loki/wal
+
+    # Distributor configuration
+    distributor:
+      ring:
+        kvstore:
+          store: memberlist
+
+    # Querier configuration
+    querier:
+      max_concurrent: 16
+
+    # Query frontend configuration
+    query_frontend:
+      max_outstanding_per_tenant: 2048
+      compress_responses: true
+
+    # Query scheduler configuration
+    query_scheduler:
+      max_outstanding_requests_per_tenant: 2048
+
+    # Schema configuration for S3 + DynamoDB
+    schema_config:
+      configs:
+        - from: 2024-01-01
+          store: tsdb
+          object_store: s3
+          schema: v13
+          index:
+            prefix: loki_index_
+            period: 24h
+
+    # Storage configuration
+    storage_config:
+      # S3 configuration for chunks
+      aws:
+        s3: "${loki_s3_bucket_name}"
+        region: "${aws_region}"
+        sse_encryption: true
+        kms_key_id: "${kms_key_id}"
+
+      # DynamoDB configuration for index
+      dynamodb:
+        dynamodb_url: "dynamodb://${aws_region}"
+
+      # TSDB shipper configuration
+      tsdb_shipper:
+        active_index_directory: /var/loki/index
+        cache_location: /var/loki/index_cache
+        shared_store: s3
+
+    # Compactor configuration
+    compactor:
+      working_directory: /var/loki/compactor
+      shared_store: s3
+      compaction_interval: 5m
+      retention_enabled: true
+      retention_delete_delay: 2h
+      retention_delete_worker_count: 150
+
+    # Ruler configuration
+    ruler:
+      storage:
+        type: s3
+        s3:
+          bucketnames: "${loki_s3_bucket_name}"
+          region: "${aws_region}"
+          sse_encryption: true
+      ring:
+        kvstore:
+          store: memberlist
+
+    # Analytics configuration
+    analytics:
+      reporting_enabled: false
+
+    # Limits configuration
+    limits_config:
+      # Ingestion limits
+      ingestion_rate_mb: 50
+      ingestion_burst_size_mb: 100
+      max_global_streams_per_user: 10000
+      max_query_parallelism: 32
+
+      # Query limits
+      max_query_length: 721h # 30 days
+      max_query_series: 100000
+      max_streams_matchers_per_query: 1000
+
+      # Retention (7 years like Mimir)
+      retention_period: 2555d
+
+# Deployment mode - use simple scalable mode
+deploymentMode: SimpleScalable
+
+# Backend configuration for simple scalable mode
+backend:
+  replicas: 3
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: "gp3"
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+
+# Read component configuration
+read:
+  replicas: 3
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClass: "gp3"
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+
+# Write component configuration
+write:
+  replicas: 3
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: "gp3"
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+
+# Gateway configuration
+gateway:
+  enabled: true
+  replicas: 2
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+# Service account with IRSA
+serviceAccount:
+  create: true
+  name: loki
+  annotations:
+    eks.amazonaws.com/role-arn: "${loki_irsa_role_arn}"
+
+# Monitoring configuration
+monitoring:
+  serviceMonitor:
+    enabled: true
+    labels:
+      app.kubernetes.io/part-of: observability-stack
+    interval: 30s
+    scrapeTimeout: 10s
+
+  # Self-monitoring rules
+  selfMonitoring:
+    enabled: false # Disable to avoid circular dependencies
+
+  # Grafana Agent integration
+  grafanaAgent:
+    installOperator: false # We're using Prometheus Agent
+
+# Ingress configuration (optional)
+ingress:
+  enabled: false
+
+# Test configuration
+test:
+  enabled: false
+
+# Single binary mode disabled (using SimpleScalable)
+singleBinary:
+  replicas: 0

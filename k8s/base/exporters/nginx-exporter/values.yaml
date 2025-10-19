@@ -1,0 +1,240 @@
+# Nginx Exporter Base Configuration
+# Uses official prometheus-community/prometheus-nginx-exporter chart
+
+# Global settings
+nameOverride: "nginx-exporter"
+fullnameOverride: "nginx-exporter"
+
+# Image configuration
+image:
+  registry: docker.io
+  repository: nginx/nginx-prometheus-exporter
+  # tag: "" # Use chart default
+  pullPolicy: IfNotPresent
+
+# Security context
+securityContext:
+  fsGroup: 65534
+  runAsGroup: 65534
+  runAsNonRoot: true
+  runAsUser: 65534
+
+# Container security context
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 9113
+  targetPort: 9113
+  annotations: {}
+  labels: {}
+
+# ServiceAccount configuration
+serviceAccount:
+  create: true
+  automount: false # No Kubernetes API access needed
+  annotations: {}
+  name: "nginx-exporter"
+  imagePullSecrets: []
+
+# RBAC configuration
+rbac:
+  create: false # No Kubernetes API access needed
+
+# Pod Security Policy
+podSecurityPolicy:
+  enabled: false
+
+# Deployment configuration
+replicas: 1
+revisionHistoryLimit: 10
+
+# Pod configuration
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9113"
+
+podLabels:
+  app.kubernetes.io/part-of: observability-stack
+
+# Node selection and scheduling
+nodeSelector:
+  kubernetes.io/os: linux
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - nginx-exporter
+          topologyKey: kubernetes.io/hostname
+
+# Priority class
+priorityClassName: ""
+
+# Resources
+resources:
+  limits:
+    cpu: 100m
+    memory: 128Mi
+  requests:
+    cpu: 10m
+    memory: 24Mi
+
+# Liveness and readiness probes
+livenessProbe:
+  failureThreshold: 3
+  httpGet:
+    httpHeaders: []
+    path: /metrics
+    port: 9113
+    scheme: HTTP
+  initialDelaySeconds: 15
+  periodSeconds: 10
+  successThreshold: 1
+  timeoutSeconds: 5
+
+readinessProbe:
+  failureThreshold: 3
+  httpGet:
+    httpHeaders: []
+    path: /metrics
+    port: 9113
+    scheme: HTTP
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  successThreshold: 1
+  timeoutSeconds: 3
+
+# ServiceMonitor configuration for Prometheus
+prometheus:
+  monitor:
+    enabled: true
+    additionalLabels:
+      app.kubernetes.io/part-of: observability-stack
+      monitoring: prometheus
+    namespace: ""
+    jobLabel: ""
+    interval: 30s
+    scrapeTimeout: 10s
+    path: /metrics
+    relabelings:
+      - sourceLabels: [__meta_kubernetes_namespace]
+        targetLabel: kubernetes_namespace
+      - sourceLabels: [__meta_kubernetes_pod_name]
+        targetLabel: kubernetes_pod_name
+      - sourceLabels: [__meta_kubernetes_pod_label_nginx_instance]
+        targetLabel: nginx_instance
+    metricRelabelings: []
+    scheme: http
+    tlsConfig: {}
+
+# Nginx Exporter Configuration
+nginx:
+  # Nginx stub_status endpoint configuration
+  # This should point to your Nginx server's stub_status endpoint
+  hosts:
+    - name: "nginx-ingress-controller"
+      host: "nginx-ingress-controller.ingress-nginx.svc.cluster.local"
+      port: 10254
+      path: "/nginx_status"
+      scheme: "http"
+    - name: "nginx-default"
+      host: "nginx.default.svc.cluster.local"
+      path: "/nginx_status"
+      port: 80
+      scheme: "http"
+
+  # SSL configuration for HTTPS endpoints
+  ssl:
+    verify: true
+    caCertificate: ""
+    clientCertificate: ""
+    clientKey: ""
+
+# Exporter configuration
+exporter:
+  # Listen address
+  listenAddress: "0.0.0.0:9113"
+
+  # Metrics path
+  metricsPath: "/metrics"
+
+  # Log level: debug, info, warn, error
+  logLevel: "info"
+
+  # Log format: logfmt, json
+  logFormat: "logfmt"
+
+  # Nginx Plus specific features (if using Nginx Plus)
+  nginxPlus: false
+
+  # Scrape URI for Nginx stub_status
+  # Format: http://nginx-server/nginx_status
+  scrapeURI: "http://nginx-ingress-controller.ingress-nginx.svc.cluster.local:10254/nginx_status"
+
+  # SSL skip verify for HTTPS connections
+  sslSkipVerify: false
+
+  # Timeout for scraping Nginx
+  timeout: "5s"
+
+  # Custom labels to add to metrics
+  constantLabels: {}
+
+# Environment variables
+env: []
+  # - name: NGINX_STATUS_URI
+  #   value: "http://nginx-ingress-controller.ingress-nginx.svc.cluster.local:10254/nginx_status"
+  # - name: NGINX_TIMEOUT
+  #   value: "5s"
+  # - name: NGINX_RETRY_INTERVAL
+  #   value: "5s"
+
+# Extra command line arguments
+extraArgs: []
+  # - --nginx.scrape-uri=http://nginx:8080/nginx_status
+  # - --nginx.timeout=10s
+  # - --web.listen-address=:9113
+
+# ConfigMap for custom configuration
+configMap:
+  enabled: false
+  data: {}
+
+# Network Policy
+networkPolicy:
+  enabled: false
+  ingress: []
+  egress: []
+
+# Ingress configuration
+ingress:
+  enabled: false
+
+# Vertical Pod Autoscaler
+verticalPodAutoscaler:
+  enabled: false
+
+# Horizontal Pod Autoscaler
+autoscaling:
+  enabled: false
+
+# Pod Disruption Budget
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  maxUnavailable: ""

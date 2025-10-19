@@ -1,0 +1,185 @@
+# Mimir Configuration Template
+# This template is populated with Terraform outputs during deployment
+
+# Global settings
+nameOverride: "mimir"
+fullnameOverride: "mimir"
+
+# Mimir configuration
+mimir:
+  # Storage configuration for AWS S3 + DynamoDB
+  structuredConfig:
+    # Common configuration
+    common:
+      storage:
+        backend: s3
+        s3:
+          endpoint: ""
+          region: "${aws_region}"
+          bucket_name: "${mimir_s3_bucket_name}"
+          sse:
+            type: SSE-KMS
+            kms_key_id: "${kms_key_id}"
+
+    # Blocks storage configuration
+    blocks_storage:
+      backend: s3
+      s3:
+        endpoint: ""
+        region: "${aws_region}"
+        bucket_name: "${mimir_s3_bucket_name}"
+        sse:
+          type: SSE-KMS
+          kms_key_id: "${kms_key_id}"
+
+    # Index Gateway - DynamoDB configuration for fast querying
+    index_gateway:
+      backend: dynamodb
+      dynamodb:
+        region: "${aws_region}"
+        table_name: "${mimir_dynamodb_table_name}"
+
+        # Use consistent reads for better data consistency
+        consistent_read: true
+
+        # Connection pool settings for better performance
+        max_retries: 3
+        backoff:
+          min_backoff: 100ms
+          max_backoff: 5s
+
+        # Connection pool configuration
+        max_idle_conns: 10
+        max_open_conns: 20
+        conn_max_lifetime: 5m
+
+      ring:
+        kvstore:
+          store: memberlist # Ingester configuration
+    ingester:
+      ring:
+        kvstore:
+          store: memberlist
+        replication_factor: 3
+
+    # Distributor configuration
+    distributor:
+      ring:
+        kvstore:
+          store: memberlist
+
+    # Query frontend configuration
+    query_frontend:
+      results_cache:
+        backend: redis
+        redis:
+          endpoint: "redis-master.default.svc.cluster.local:6379"
+          timeout: 500ms
+
+    # Querier configuration
+    querier:
+      metadata_cache:
+        backend: redis
+        redis:
+          endpoint: "redis-master.default.svc.cluster.local:6379"
+          timeout: 500ms
+
+    # Store gateway configuration
+    store_gateway:
+      sharding_ring:
+        kvstore:
+          store: memberlist
+
+    # Compactor configuration
+    compactor:
+      sharding_ring:
+        kvstore:
+          store: memberlist
+
+    # Ruler configuration
+    ruler:
+      rule_path: /data
+      ring:
+        kvstore:
+          store: memberlist
+      ruler_storage:
+        backend: s3
+        s3:
+          endpoint: ""
+          region: "${aws_region}"
+          bucket_name: "${mimir_s3_bucket_name}"
+          sse:
+            type: SSE-KMS
+            kms_key_id: "${kms_key_id}"
+
+    # Alertmanager configuration
+    alertmanager:
+      sharding_ring:
+        kvstore:
+          store: memberlist
+      external_url: http://alertmanager.observability.svc.cluster.local
+
+    # Limits configuration
+    limits:
+      ingestion_rate: 50000
+      ingestion_burst_size: 100000
+      max_global_series_per_user: 10000000
+      max_global_series_per_metric: 100000
+      max_query_parallelism: 32
+      max_concurrent: 64
+      max_query_lookback: 14d
+      max_query_length: 32d
+      max_partial_query_length: 7d
+      compactor_blocks_retention_period: 2555d
+
+# Service account with IRSA
+serviceAccount:
+  create: true
+  name: mimir
+  annotations:
+    eks.amazonaws.com/role-arn: "${mimir_irsa_role_arn}"
+
+# Gateway configuration
+gateway:
+  replicas: 2
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+# Distributor configuration
+distributor:
+  replicas: 3
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+# Ingester configuration
+ingester:
+  replicas: 3
+  persistentVolume:
+    enabled: true
+    size: 50Gi
+    storageClass: "gp3"
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+
+# Enable ServiceMonitor for Prometheus scraping
+serviceMonitor:
+  enabled: true
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+  interval: 30s
+  scrapeTimeout: 10s
