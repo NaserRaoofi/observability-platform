@@ -1,0 +1,178 @@
+apiVersion: sloth.slok.dev/v1
+kind: PrometheusServiceLevel
+metadata:
+  name: observability-infrastructure-slo
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: sloth
+    app.kubernetes.io/part-of: observability-stack
+    service: observability-infrastructure
+spec:
+  service: "observability-infrastructure"
+  labels:
+    team: "platform"
+    component: "infrastructure"
+    environment: "production"
+  slos:
+    # Overall observability stack availability
+    - name: "stack-availability"
+      objective: 99.5
+      description: "99.5% of observability stack components should be healthy"
+      sli:
+        events:
+          # Error events: Unhealthy components
+          errorQuery: |
+            count(up{
+              job=~"mimir-.*|loki-.*|prometheus-.*|.*-exporter"
+            } == 0)
+          # Total events: All observability components
+          totalQuery: |
+            count(up{
+              job=~"mimir-.*|loki-.*|prometheus-.*|.*-exporter"
+            })
+      alerting:
+        name: ObservabilityStackUnhealthy
+        labels:
+          category: availability
+          severity: critical
+          service: observability
+        annotations:
+          summary: "Observability stack component availability is below SLO"
+          description: |
+            Observability stack health: {{ printf "%.2f" $value }}%
+            SLO threshold: 99.5%
+            Unhealthy components detected.
+          runbook_url: "https://runbooks.example.com/observability/stack-health"
+
+    # Kubernetes cluster monitoring coverage
+    - name: "monitoring-coverage"
+      objective: 95.0
+      description: "95% of Kubernetes nodes should have monitoring agents"
+      sli:
+        events:
+          # Error events: Nodes without monitoring
+          errorQuery: |
+            count(kube_node_info) -
+            count(up{job="node-exporter"} == 1)
+          # Total events: All Kubernetes nodes
+          totalQuery: |
+            count(kube_node_info)
+      alerting:
+        name: MonitoringCoverageInsufficient
+        labels:
+          category: coverage
+          severity: warning
+          service: observability
+        annotations:
+          summary: "Kubernetes monitoring coverage is below SLO threshold"
+          description: |
+            Node monitoring coverage: {{ printf "%.2f" $value }}%
+            SLO threshold: 95%
+          runbook_url: "https://runbooks.example.com/observability/monitoring-coverage"
+
+    # Data retention compliance SLO
+    - name: "data-retention"
+      objective: 99.9
+      description: "99.9% of metrics and logs should be retained per policy"
+      sli:
+        events:
+          # Error events: Data loss incidents
+          errorQuery: |
+            sum(increase(prometheus_tsdb_compactions_failed_total{
+              job=~"mimir-.*"
+            }[1h])) +
+            sum(increase(loki_compactor_failed_compactions_total{
+              job=~"loki-.*"
+            }[1h]))
+          # Total events: All compaction operations
+          totalQuery: |
+            sum(increase(prometheus_tsdb_compactions_total{
+              job=~"mimir-.*"
+            }[1h])) +
+            sum(increase(loki_compactor_compactions_total{
+              job=~"loki-.*"
+            }[1h]))
+      alerting:
+        name: DataRetentionViolation
+        labels:
+          category: retention
+          severity: critical
+          service: observability
+        annotations:
+          summary: "Data retention compliance is below SLO threshold"
+          description: |
+            Data retention success rate: {{ printf "%.2f" $value }}%
+            SLO threshold: 99.9%
+          runbook_url: "https://runbooks.example.com/observability/data-retention"
+
+    # Storage performance SLO
+    - name: "storage-performance"
+      objective: 99.0
+      description: "99% of storage operations should complete within acceptable time"
+      sli:
+        events:
+          # Error events: Slow storage operations
+          errorQuery: |
+            sum(rate(prometheus_tsdb_wal_fsync_duration_seconds_bucket{
+              job=~"mimir-.*",
+              le="0.1"
+            }[5m])) +
+            sum(rate(loki_ingester_wal_fsync_duration_seconds_bucket{
+              job=~"loki-.*",
+              le="0.1"
+            }[5m]))
+          # Total events: All storage operations
+          totalQuery: |
+            sum(rate(prometheus_tsdb_wal_fsync_duration_seconds_count{
+              job=~"mimir-.*"
+            }[5m])) +
+            sum(rate(loki_ingester_wal_fsync_duration_seconds_count{
+              job=~"loki-.*"
+            }[5m]))
+      alerting:
+        name: StoragePerformanceDegradation
+        labels:
+          category: performance
+          severity: warning
+          service: observability
+        annotations:
+          summary: "Storage performance is below SLO threshold"
+          description: |
+            Storage operation performance: {{ printf "%.2f" $value }}%
+            SLO threshold: 99%
+          runbook_url: "https://runbooks.example.com/observability/storage-performance"
+
+    # Alert processing SLO
+    - name: "alert-processing"
+      objective: 99.5
+      description: "99.5% of alerts should be processed and delivered successfully"
+      sli:
+        events:
+          # Error events: Failed alert processing
+          errorQuery: |
+            sum(rate(prometheus_rule_evaluation_failures_total{
+              job=~"mimir-.*"
+            }[5m])) +
+            sum(rate(prometheus_notifications_errors_total{
+              job=~"mimir-.*"
+            }[5m]))
+          # Total events: All alert evaluations and notifications
+          totalQuery: |
+            sum(rate(prometheus_rule_evaluations_total{
+              job=~"mimir-.*"
+            }[5m])) +
+            sum(rate(prometheus_notifications_total{
+              job=~"mimir-.*"
+            }[5m]))
+      alerting:
+        name: AlertProcessingFailures
+        labels:
+          category: alerting
+          severity: critical
+          service: observability
+        annotations:
+          summary: "Alert processing is below SLO threshold"
+          description: |
+            Alert processing success rate: {{ printf "%.2f" $value }}%
+            SLO threshold: 99.5%
+          runbook_url: "https://runbooks.example.com/observability/alert-processing"

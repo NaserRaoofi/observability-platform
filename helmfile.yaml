@@ -5,6 +5,8 @@ repositories:
     url: https://grafana.github.io/helm-charts
   - name: open-telemetry
     url: https://open-telemetry.github.io/opentelemetry-helm-charts
+  - name: sloth
+    url: https://slok.github.io/sloth
 
 environments:
   dev:
@@ -53,3 +55,72 @@ releases:
     version: 5.15.0
     values:
       - k8s/base/exporters/kube-state-metrics-values.yaml
+
+  # Mimir - Long-term Metrics Storage
+  - name: mimir
+    namespace: observability
+    chart: grafana/mimir-distributed
+    version: 5.1.0
+    values:
+      - k8s/base/mimir/values.yaml
+
+  # Additional Exporters
+  - name: blackbox-exporter
+    namespace: observability
+    chart: prometheus-community/prometheus-blackbox-exporter
+    version: 8.8.0
+    values:
+      - k8s/base/exporters/blackbox-exporter/values.yaml
+
+  - name: nginx-exporter
+    namespace: observability
+    chart: prometheus-community/prometheus-nginx-exporter
+    version: 0.1.1
+    values:
+      - k8s/base/exporters/nginx-exporter/values.yaml
+
+  - name: redis-exporter
+    namespace: observability
+    chart: prometheus-community/prometheus-redis-exporter
+    version: 6.0.0
+    values:
+      - k8s/base/exporters/redis-exporter/values.yaml
+
+  - name: cloudwatch-exporter
+    namespace: observability
+    chart: prometheus-community/prometheus-cloudwatch-exporter
+    version: 0.25.3
+    values:
+      - k8s/base/exporters/aws-cloudwatch-exporter/values.yaml
+
+  # Loki - Log Aggregation and Storage
+  - name: loki
+    namespace: observability
+    chart: grafana/loki
+    version: 6.6.4
+    values:
+      - k8s/base/loki/values.yaml
+
+  # Promtail - Log Collection Agent
+  - name: promtail
+    namespace: observability
+    chart: grafana/promtail
+    version: 6.15.5
+    values:
+      - k8s/base/promtail/values.yaml
+
+  # Sloth - SLI/SLO Monitoring
+  - name: sloth
+    namespace: observability
+    chart: sloth/sloth
+    version: 0.11.0
+    values:
+      - k8s/base/sloth/values.yaml
+
+  # Tempo - Distributed Tracing Storage
+  - name: tempo
+    namespace: observability
+    chart: grafana/tempo
+    version: 1.7.1
+    values:
+      - k8s/base/tempo/values.yaml

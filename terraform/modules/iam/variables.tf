@@ -64,6 +64,12 @@ variable "loki_s3_bucket_arn" {
   default     = null
 }
 
+variable "tempo_s3_bucket_arn" {
+  description = "ARN of the S3 bucket for Tempo object storage (optional)"
+  type        = string
+  default     = null
+}
+
 # ===============================================================================
 # FEATURE FLAGS
 # ===============================================================================
@@ -78,6 +84,12 @@ variable "create_grafana_resources" {
   description = "Whether to create Grafana-related IAM resources"
   type        = bool
   default     = true
+}
+
+variable "create_tempo_resources" {
+  description = "Whether to create Tempo-related IAM resources"
+  type        = bool
+  default     = false
 }
 
 # ===============================================================================
@@ -123,6 +135,12 @@ variable "loki_additional_policies" {
 
 variable "grafana_additional_policies" {
   description = "Additional policy ARNs to attach to Grafana role"
+  type        = map(string)
+  default     = {}
+}
+
+variable "tempo_additional_policies" {
+  description = "Additional policy ARNs to attach to Tempo role"
   type        = map(string)
   default     = {}
 }

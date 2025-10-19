@@ -20,6 +20,7 @@ locals {
   # S3 bucket ARNs for object storage
   mimir_bucket_arn = var.mimir_s3_bucket_arn
   loki_bucket_arn  = var.loki_s3_bucket_arn
+  tempo_bucket_arn = var.tempo_s3_bucket_arn
 }
 
 # ===============================================================================
@@ -183,6 +184,50 @@ module "grafana_observability_policy" {
   description = "Read-only access policy for Grafana to observability resources"
 
   policy = data.aws_iam_policy_document.grafana_observability.json
+
+  tags = local.common_tags
+}
+
+# ===============================================================================
+# TEMPO IAM ROLE AND POLICIES
+# ===============================================================================
+
+# IAM Role for Tempo (Distributed tracing storage)
+module "tempo_role" {
+  source = "../../../terraform-aws-iam/modules/iam-role-for-service-accounts"
+
+  count = var.create_tempo_resources ? 1 : 0
+
+  name = "${var.project_name}-tempo-${var.environment}"
+
+  oidc_providers = {
+    main = {
+      provider_arn               = var.eks_oidc_provider_arn
+      namespace_service_accounts = ["${var.monitoring_namespace}:tempo"]
+    }
+  }
+
+  # Attach custom policies for Tempo
+  policies = merge(
+    {
+      TempoS3Access = module.tempo_s3_policy[0].arn
+    },
+    var.tempo_additional_policies
+  )
+
+  tags = local.common_tags
+}
+
+# Custom S3 policy for Tempo
+module "tempo_s3_policy" {
+  source = "../../../terraform-aws-iam/modules/iam-policy"
+
+  count = var.create_tempo_resources ? 1 : 0
+
+  name_prefix = "tempo-s3-${var.environment}-"
+  description = "S3 access policy for Tempo traces storage"
+
+  policy = data.aws_iam_policy_document.tempo_s3[0].json
 
   tags = local.common_tags
 }

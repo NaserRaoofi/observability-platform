@@ -1,0 +1,144 @@
+apiVersion: sloth.slok.dev/v1
+kind: PrometheusServiceLevel
+metadata:
+  name: loki-availability-slo
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: sloth
+    app.kubernetes.io/part-of: observability-stack
+    service: loki
+spec:
+  service: "loki"
+  labels:
+    team: "platform"
+    component: "logs-storage"
+    environment: "production"
+  slos:
+    # Log ingestion availability SLO
+    - name: "ingestion-availability"
+      objective: 99.5
+      description: "99.5% of log ingestion requests should be successful"
+      sli:
+        events:
+          # Error events: HTTP 5xx responses for ingestion
+          errorQuery: |
+            sum(rate(loki_request_errors_total{
+              job="loki-gateway",
+              route="loki_api_v1_push",
+              status_code=~"5.."
+            }[5m]))
+          # Total events: All ingestion requests
+          totalQuery: |
+            sum(rate(loki_request_total{
+              job="loki-gateway",
+              route="loki_api_v1_push"
+            }[5m]))
+      alerting:
+        name: LokiIngestionErrors
+        labels:
+          category: availability
+          severity: critical
+          service: loki
+        annotations:
+          summary: "Loki ingestion error rate is above SLO threshold"
+          description: |
+            Loki ingestion availability SLO is being violated.
+            Error rate: {{ printf "%.2f" $value }}%
+            Threshold: 0.5%
+          runbook_url: "https://runbooks.example.com/loki/ingestion-errors"
+
+    # Query availability SLO
+    - name: "query-availability"
+      objective: 99.0
+      description: "99% of log query requests should be successful"
+      sli:
+        events:
+          # Error events: HTTP 5xx responses for queries
+          errorQuery: |
+            sum(rate(loki_request_errors_total{
+              job="loki-gateway",
+              route=~"loki_api_v1_(query|query_range)",
+              status_code=~"5.."
+            }[5m]))
+          # Total events: All query requests
+          totalQuery: |
+            sum(rate(loki_request_total{
+              job="loki-gateway",
+              route=~"loki_api_v1_(query|query_range)"
+            }[5m]))
+      alerting:
+        name: LokiQueryErrors
+        labels:
+          category: availability
+          severity: warning
+          service: loki
+        annotations:
+          summary: "Loki query error rate is above SLO threshold"
+          description: |
+            Loki query availability: {{ printf "%.2f" $value }}%
+            SLO threshold: 99%
+          runbook_url: "https://runbooks.example.com/loki/query-errors"
+
+    # Query latency SLO
+    - name: "query-latency"
+      objective: 95.0
+      description: "95% of log queries should complete within 5 seconds"
+      sli:
+        events:
+          # Error events: Queries taking longer than 5s
+          errorQuery: |
+            sum(rate(loki_request_duration_seconds_bucket{
+              job="loki-gateway",
+              route=~"loki_api_v1_(query|query_range)",
+              le="5"
+            }[5m]))
+          # Total events: All query requests
+          totalQuery: |
+            sum(rate(loki_request_duration_seconds_count{
+              job="loki-gateway",
+              route=~"loki_api_v1_(query|query_range)"
+            }[5m]))
+      alerting:
+        name: LokiHighQueryLatency
+        labels:
+          category: latency
+          severity: warning
+          service: loki
+        annotations:
+          summary: "Loki query latency is above SLO threshold"
+          description: |
+            {{ printf "%.2f" }}% of queries are completing within 5 seconds
+            SLO threshold: 95%
+          runbook_url: "https://runbooks.example.com/loki/high-latency"
+
+    # Log data freshness SLO
+    - name: "data-freshness"
+      objective: 98.0
+      description: "98% of logs should appear in Loki within 30 seconds of generation"
+      sli:
+        events:
+          # Error events: Logs older than 30s at ingestion
+          errorQuery: |
+            sum(rate(loki_ingester_streams_created_total{
+              job="loki-write"
+            }[5m])) -
+            sum(rate(loki_distributor_lines_received_total{
+              job="loki-write"
+            }[5m] offset 30s))
+          # Total events: All ingested log lines
+          totalQuery: |
+            sum(rate(loki_distributor_lines_received_total{
+              job="loki-write"
+            }[5m]))
+      alerting:
+        name: LokiDataFreshness
+        labels:
+          category: freshness
+          severity: info
+          service: loki
+        annotations:
+          summary: "Loki data freshness is below SLO threshold"
+          description: |
+            Log data freshness: {{ printf "%.2f" $value }}%
+            SLO threshold: 98%
+          runbook_url: "https://runbooks.example.com/loki/data-freshness"
