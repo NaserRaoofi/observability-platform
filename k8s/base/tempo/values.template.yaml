@@ -1,0 +1,302 @@
+# Tempo Configuration for Distributed Tracing
+# Using Grafana Tempo in SimpleScalable mode with S3 backend
+
+# Global settings
+global:
+  clusterName: "observability-cluster"
+
+# Tempo configuration
+tempo:
+  # Repository and image settings
+  repository: grafana/tempo
+  tag: "2.2.3"
+  pullPolicy: IfNotPresent
+
+  # Resource allocation
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Retention settings
+  retention: 240h # 10 days retention
+
+  # Configuration file
+  config: |
+    server:
+      http_listen_port: 3100
+      grpc_listen_port: 9095
+      log_level: info
+
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:4317
+            http:
+              endpoint: 0.0.0.0:4318
+        jaeger:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:14250
+            thrift_http:
+              endpoint: 0.0.0.0:14268
+            thrift_binary:
+              endpoint: 0.0.0.0:6832
+            thrift_compact:
+              endpoint: 0.0.0.0:6831
+        zipkin:
+          endpoint: 0.0.0.0:9411
+
+    ingester:
+      max_block_duration: 5m               # cut the headblock when this much time passes
+      max_block_bytes: 1_073_741_824       # cut the headblock when it hits this size
+      complete_block_timeout: 10m          # flush an incomplete block after this much time passes
+      lifecycler:
+        ring:
+          kvstore:
+            store: memberlist
+        tokens_file_path: /var/tempo/tokens.json
+
+    memberlist:
+      abort_if_cluster_join_fails: false
+      bind_port: 7946
+      join_members:
+        - tempo-memberlist
+
+    compactor:
+      compaction:
+        block_retention: 240h              # 10 days retention
+
+    storage:
+      trace:
+        backend: s3
+        s3:
+          bucket: ${tempo_s3_bucket_name}
+          region: ${aws_region}
+          access_key: ""
+          secret_key: ""
+          insecure: false
+          # Server-side encryption
+          sse_config:
+            type: "SSE-KMS"
+            kms_key_id: "${kms_key_id}"
+        pool:
+          max_workers: 100
+          queue_depth: 10000
+
+    querier:
+      frontend_worker:
+        frontend_address: tempo-query-frontend-discovery:9095
+
+    query_frontend:
+      search:
+        duration_slo: 5s
+        throughput_bytes_slo: 1.073741824e+09
+      trace_by_id:
+        duration_slo: 5s
+
+    metrics_generator:
+      registry:
+        external_labels:
+          source: tempo
+          cluster: observability-cluster
+      storage:
+        path: /var/tempo/generator/wal
+        remote_write:
+          - url: http://mimir-gateway.observability.svc.cluster.local:8080/api/v1/push
+            send_exemplars: true
+
+# SimpleScalable deployment mode
+mode: SimpleScalable
+
+# SimpleScalable specific configuration
+simpleScalable:
+  # Scaling configuration
+  replicas: 2
+
+  # Resource allocation for each component
+  resources:
+    # Scalable-single-binary resources
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+# Service Account configuration with IRSA
+serviceAccount:
+  create: true
+  name: tempo
+  annotations:
+    eks.amazonaws.com/role-arn: "${tempo_irsa_role_arn}"
+
+# Storage configuration
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: gp3
+  accessModes:
+    - ReadWriteOnce
+
+# Service configuration
+service:
+  type: ClusterIP
+  ports:
+    # Tempo native
+    - name: tempo-prom-metrics
+      port: 3100
+      targetPort: 3100
+    # OTLP gRPC receiver
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+    # OTLP HTTP receiver
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+    # Jaeger gRPC receiver
+    - name: jaeger-grpc
+      port: 14250
+      targetPort: 14250
+    # Jaeger HTTP receiver
+    - name: jaeger-http
+      port: 14268
+      targetPort: 14268
+    # Jaeger Thrift Binary
+    - name: jaeger-thrift-binary
+      port: 6832
+      targetPort: 6832
+      protocol: UDP
+    # Jaeger Thrift Compact
+    - name: jaeger-thrift-compact
+      port: 6831
+      targetPort: 6831
+      protocol: UDP
+    # Zipkin receiver
+    - name: zipkin
+      port: 9411
+      targetPort: 9411
+
+# Gateway configuration for unified access
+gateway:
+  enabled: true
+  replicas: 2
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 8080
+
+  # Gateway configuration
+  config:
+    server:
+      http_listen_port: 8080
+      log_level: info
+
+    distributor:
+      ring:
+        kvstore:
+          store: memberlist
+
+    memberlist:
+      join_members:
+        - tempo-memberlist
+
+# ServiceMonitor for Prometheus metrics
+serviceMonitor:
+  enabled: true
+  interval: 15s
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+
+# Grafana configuration
+grafana:
+  sidecar:
+    datasources:
+      enabled: false
+      # Datasource will be configured separately
+
+# Network policies
+networkPolicy:
+  enabled: false # Enable if using network policies
+
+# Pod Security Policy
+podSecurityPolicy:
+  enabled: false
+
+# Security Context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+# Container Security Context
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+# Probes configuration
+livenessProbe:
+  httpGet:
+    path: /ready
+    port: 3100
+  initialDelaySeconds: 30
+  timeoutSeconds: 1
+  periodSeconds: 15
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: 3100
+  initialDelaySeconds: 15
+  timeoutSeconds: 1
+  periodSeconds: 5
+  failureThreshold: 3
+
+# Node selector and tolerations
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Pod disruption budget
+podDisruptionBudget:
+  maxUnavailable: 1
+
+# Extra environment variables
+extraEnvVars: []
+
+# Extra volumes and volume mounts
+extraVolumes: []
+extraVolumeMounts: []
+
+# Annotations
+podAnnotations: {}
+serviceAnnotations: {}
+
+# Labels
+podLabels:
+  app.kubernetes.io/component: tempo
+  app.kubernetes.io/part-of: observability-stack
+
+serviceLabels:
+  app.kubernetes.io/component: tempo
+  app.kubernetes.io/part-of: observability-stack

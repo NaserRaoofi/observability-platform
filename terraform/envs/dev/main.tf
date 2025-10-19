@@ -110,10 +110,12 @@ module "observability_iam" {
   # Required: S3 bucket ARNs
   mimir_s3_bucket_arn = module.observability_s3.mimir_bucket_arn
   loki_s3_bucket_arn  = var.create_loki_bucket ? module.observability_s3.loki_bucket_arn : null
+  tempo_s3_bucket_arn = var.create_tempo_bucket ? module.observability_s3.tempo_bucket_arn : null
 
   # Feature flags
   create_loki_resources    = var.create_loki_role
   create_grafana_resources = var.create_grafana_role
+  create_tempo_resources   = var.create_tempo_role
 
   # Tags
   tags = local.common_tags

@@ -1,0 +1,180 @@
+# Node Exporter Base Configuration
+# Uses official prometheus-community/prometheus-node-exporter chart
+
+# Global settings
+nameOverride: "node-exporter"
+fullnameOverride: "node-exporter"
+
+# Image configuration
+image:
+  registry: quay.io
+  repository: prometheus/node-exporter
+  # tag: "" # Use chart default
+  pullPolicy: IfNotPresent
+
+# Security context
+securityContext:
+  fsGroup: 65534
+  runAsGroup: 65534
+  runAsNonRoot: true
+  runAsUser: 65534
+
+# Container security context
+containerSecurityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 9100
+  targetPort: 9100
+  nodePort: null
+  listenOnAllInterfaces: true
+  annotations: {}
+
+# ServiceAccount configuration
+serviceAccount:
+  create: true
+  automount: false # No need for service account token mounting
+  annotations: {}
+  name: "node-exporter"
+  imagePullSecrets: []
+
+# RBAC configuration
+rbac:
+  create: true
+  pspEnabled: false
+
+# Pod Security Policy
+podSecurityPolicy:
+  enabled: false
+
+# Host networking and PID namespace
+hostNetwork: true
+hostPID: true
+
+# DaemonSet configuration
+daemonsetAnnotations: {}
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9100"
+podLabels:
+  app.kubernetes.io/part-of: observability-stack
+
+# Node selection
+nodeSelector:
+  kubernetes.io/os: linux
+tolerations:
+  - effect: NoSchedule
+    operator: Exists
+  - effect: NoExecute
+    operator: Exists
+    tolerationSeconds: 300
+
+# Affinity rules
+affinity: {}
+
+# Priority class
+priorityClassName: ""
+
+# Resources
+resources:
+  limits:
+    cpu: 200m
+    memory: 50Mi
+  requests:
+    cpu: 100m
+    memory: 30Mi
+
+# Liveness and readiness probes
+livenessProbe:
+  failureThreshold: 3
+  httpGet:
+    httpHeaders: []
+    path: /
+    port: 9100
+    scheme: HTTP
+  initialDelaySeconds: 0
+  periodSeconds: 10
+  successThreshold: 1
+  timeoutSeconds: 1
+
+readinessProbe:
+  failureThreshold: 3
+  httpGet:
+    httpHeaders: []
+    path: /
+    port: 9100
+    scheme: HTTP
+  initialDelaySeconds: 0
+  periodSeconds: 10
+  successThreshold: 1
+  timeoutSeconds: 1
+
+# ServiceMonitor configuration for Prometheus
+prometheus:
+  monitor:
+    enabled: true
+    additionalLabels:
+      app.kubernetes.io/part-of: observability-stack
+      monitoring: prometheus
+    namespace: ""
+    jobLabel: ""
+    interval: 30s
+    scrapeTimeout: 10s
+    path: /metrics
+    relabelings:
+      - sourceLabels: [__meta_kubernetes_pod_node_name]
+        targetLabel: kubernetes_node
+      - sourceLabels: [__meta_kubernetes_namespace]
+        targetLabel: kubernetes_namespace
+      - sourceLabels: [__meta_kubernetes_pod_name]
+        targetLabel: kubernetes_pod_name
+    metricRelabelings: []
+    scheme: http
+    tlsConfig: {}
+
+# Node Exporter specific configuration
+extraArgs:
+  - --path.sysfs=/host/sys
+  - --path.rootfs=/host/root
+  - --no-collector.wifi
+  - --no-collector.hwmon
+  - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+|var/lib/kubelet/.+)($|/)
+  - --collector.netclass.ignored-devices=^(veth.*|docker.*|br-.*|lo.*)$
+  - --collector.netdev.device-exclude=^(veth.*|docker.*|br-.*|lo.*)$
+
+# Host path mounts
+hostRootFsMount:
+  enabled: true
+  mountPropagation: HostToContainer
+
+# Extra host path mounts
+extraHostVolumeMounts:
+  - name: proc
+    hostPath: /proc
+    mountPath: /host/proc
+    readOnly: true
+    mountPropagation: HostToContainer
+  - name: sys
+    hostPath: /sys
+    mountPath: /host/sys
+    readOnly: true
+    mountPropagation: HostToContainer
+
+# Sidecar containers
+sidecarVolumeMount: []
+
+# Config reloader
+configmapReload:
+  enabled: false
+
+# Update strategy
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 1

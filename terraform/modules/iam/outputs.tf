@@ -66,6 +66,27 @@ output "grafana_service_account_annotation" {
 }
 
 # ===============================================================================
+# TEMPO ROLE OUTPUTS (Conditional)
+# ===============================================================================
+
+output "tempo_role_arn" {
+  description = "ARN of the Tempo IAM role for IRSA (if created)"
+  value       = var.create_tempo_resources ? module.tempo_role[0].iam_role_arn : null
+}
+
+output "tempo_role_name" {
+  description = "Name of the Tempo IAM role (if created)"
+  value       = var.create_tempo_resources ? module.tempo_role[0].iam_role_name : null
+}
+
+output "tempo_service_account_annotation" {
+  description = "Annotation to add to Tempo Kubernetes service account (if created)"
+  value = var.create_tempo_resources ? {
+    "eks.amazonaws.com/role-arn" = module.tempo_role[0].iam_role_arn
+  } : null
+}
+
+# ===============================================================================
 # POLICY OUTPUTS
 # ===============================================================================
 
@@ -89,6 +110,11 @@ output "loki_s3_policy_arn" {
   value       = var.create_loki_resources ? module.loki_s3_policy[0].arn : null
 }
 
+output "tempo_s3_policy_arn" {
+  description = "ARN of the Tempo S3 access policy (if created)"
+  value       = var.create_tempo_resources ? module.tempo_s3_policy[0].arn : null
+}
+
 # ===============================================================================
 # KUBERNETES INTEGRATION OUTPUTS
 # ===============================================================================
@@ -104,6 +130,9 @@ output "service_account_annotations" {
     } : {}
     grafana = var.create_grafana_resources ? {
       "eks.amazonaws.com/role-arn" = module.grafana_role[0].iam_role_arn
+    } : {}
+    tempo = var.create_tempo_resources ? {
+      "eks.amazonaws.com/role-arn" = module.tempo_role[0].iam_role_arn
     } : {}
   }
 }
@@ -135,6 +164,13 @@ output "roles_summary" {
       kubernetes_namespace        = var.monitoring_namespace
       kubernetes_service_account  = "grafana"
       permissions                 = ["CloudWatch:ReadOnly", "Prometheus:ReadOnly"]
+    } : null
+    tempo = var.create_tempo_resources ? {
+      role_arn                    = module.tempo_role[0].iam_role_arn
+      role_name                   = module.tempo_role[0].iam_role_name
+      kubernetes_namespace        = var.monitoring_namespace
+      kubernetes_service_account  = "tempo"
+      permissions                 = ["S3:ReadWrite"]
     } : null
   }
 }
