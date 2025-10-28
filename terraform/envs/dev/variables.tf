@@ -126,6 +126,40 @@ variable "create_grafana_role" {
   default     = true
 }
 
+# ===============================================================================
+# GRAFANA CONFIGURATION
+# ===============================================================================
+
+variable "enable_grafana_dashboards" {
+  description = "Whether to create Grafana dashboards"
+  type        = bool
+  default     = true
+}
+
+variable "grafana_org_id" {
+  description = "Grafana organization ID"
+  type        = string
+  default     = "1"
+}
+
+variable "create_grafana_workspace" {
+  description = "Whether to create a managed Grafana workspace"
+  type        = bool
+  default     = false
+}
+
+variable "prometheus_endpoint" {
+  description = "Prometheus endpoint URL for Grafana data source"
+  type        = string
+  default     = "http://prometheus.monitoring.svc.cluster.local:9090"
+}
+
+variable "alertmanager_endpoint" {
+  description = "AlertManager endpoint URL for Grafana data source"
+  type        = string
+  default     = "http://alertmanager.monitoring.svc.cluster.local:9093"
+}
+
 variable "create_tempo_role" {
   description = "Whether to create IAM role for Tempo"
   type        = bool

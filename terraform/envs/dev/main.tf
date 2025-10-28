@@ -120,3 +120,28 @@ module "observability_iam" {
   # Tags
   tags = local.common_tags
 }
+
+# ==========================================
+# Grafana Module - Dashboards and Configuration
+# ==========================================
+module "observability_grafana" {
+  source = "../../modules/grafana"
+
+  # Dashboard configuration
+  enable_dashboards    = var.enable_grafana_dashboards
+  grafana_org_id      = var.grafana_org_id
+  grafana_folder_uid  = "observability-${var.environment}"
+
+  # Data source endpoints (adjust based on your setup)
+  prometheus_endpoint   = var.prometheus_endpoint
+  alertmanager_endpoint = var.alertmanager_endpoint
+
+  # Workspace configuration (for managed Grafana)
+  create_workspace      = var.create_grafana_workspace
+  workspace_name        = "${var.project_name}-${var.environment}"
+  workspace_description = "Observability platform Grafana workspace for ${var.environment}"
+  workspace_role_arn    = var.create_grafana_role ? module.observability_iam.grafana_role_arn : null
+
+  # Tags
+  tags = local.common_tags
+}

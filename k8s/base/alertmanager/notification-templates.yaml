@@ -1,0 +1,294 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-templates
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: alertmanager
+data:
+  # Default notification template
+  default.tmpl: |
+    {{ define "__alert_severity_prefix" -}}
+      {{- if eq .Status "firing" -}}
+        {{- if eq .Labels.severity "critical" -}}🔥{{ else if eq .Labels.severity "high" -}}⚠️{{ else if eq .Labels.severity "warning" -}}⚠️{{ else -}}ℹ️{{- end -}}
+      {{- else -}}✅{{- end -}}
+    {{- end }}
+
+    {{ define "__alert_severity_prefix_title" -}}
+      {{- if eq .Status "firing" -}}
+        {{- if eq .Labels.severity "critical" -}}CRITICAL{{ else if eq .Labels.severity "high" -}}HIGH{{ else if eq .Labels.severity "warning" -}}WARNING{{ else -}}INFO{{- end -}}
+      {{- else -}}RESOLVED{{- end -}}
+    {{- end }}
+
+    {{ define "slack.default.title" -}}
+      {{- template "__alert_severity_prefix" . }} {{ template "__alert_severity_prefix_title" . }}: {{ .GroupLabels.alertname }}
+    {{- end }}
+
+    {{ define "slack.default.text" -}}
+      {{- if .CommonAnnotations.summary }}{{ .CommonAnnotations.summary }}{{ end }}
+      {{- if .CommonAnnotations.description }}
+      {{ .CommonAnnotations.description }}
+      {{- end }}
+      {{- if gt (len .Alerts.Firing) 0 }}
+
+      *Firing Alerts:*
+      {{- range .Alerts.Firing }}
+      • *{{ .Labels.alertname }}*{{ if .Labels.instance }} on {{ .Labels.instance }}{{ end }}
+        {{- if .Annotations.summary }} - {{ .Annotations.summary }}{{ end }}
+      {{- end }}
+      {{- end }}
+      {{- if gt (len .Alerts.Resolved) 0 }}
+
+      *Resolved Alerts:*
+      {{- range .Alerts.Resolved }}
+      • *{{ .Labels.alertname }}*{{ if .Labels.instance }} on {{ .Labels.instance }}{{ end }}
+      {{- end }}
+      {{- end }}
+    {{- end }}
+
+  # SLO-specific templates
+  slo.tmpl: |
+    {{ define "slo.slack.title" -}}
+      {{- if eq .Status "firing" -}}
+        {{- if eq .Labels.severity "critical" -}}🔥 SLO BREACH: {{ .GroupLabels.sloth_service }}
+        {{- else if eq .Labels.severity "high" -}}⚠️ SLO DEGRADING: {{ .GroupLabels.sloth_service }}
+        {{- else -}}ℹ️ SLO WARNING: {{ .GroupLabels.sloth_service }}
+        {{- end -}}
+      {{- else -}}✅ SLO RECOVERED: {{ .GroupLabels.sloth_service }}
+      {{- end -}}
+    {{- end }}
+
+    {{ define "slo.slack.text" -}}
+      *Service:* {{ .GroupLabels.sloth_service }}
+      *SLO:* {{ .GroupLabels.sloth_slo }}
+      {{- if .CommonAnnotations.error_budget_remaining }}
+      *Error Budget:* {{ .CommonAnnotations.error_budget_remaining }}%
+      {{- end }}
+      {{- if .CommonAnnotations.burn_rate }}
+      *Burn Rate:* {{ .CommonAnnotations.burn_rate }}x
+      {{- end }}
+
+      {{ range .Alerts.Firing -}}
+      *Alert:* {{ .Annotations.summary }}
+      {{- if .Annotations.description }}
+      *Description:* {{ .Annotations.description }}
+      {{- end }}
+      {{- if .Annotations.dashboard_url }}
+      *Dashboard:* <{{ .Annotations.dashboard_url }}|View SLO Dashboard>
+      {{- end }}
+      {{- if .Annotations.runbook_url }}
+      *Runbook:* <{{ .Annotations.runbook_url }}|View Runbook>
+      {{- end }}
+
+      {{ end -}}
+
+      {{- if .CommonAnnotations.remediation }}
+      *Immediate Actions:*
+      {{ .CommonAnnotations.remediation }}
+      {{- end }}
+    {{- end }}
+
+    {{ define "slo.email.subject" -}}
+      {{- if eq .Status "firing" -}}
+        {{- if eq .Labels.severity "critical" -}}CRITICAL SLO BREACH
+        {{- else if eq .Labels.severity "high" -}}HIGH: SLO DEGRADATION
+        {{- else -}}WARNING: SLO Issue
+        {{- end }} - {{ .GroupLabels.sloth_service }}
+      {{- else -}}RESOLVED: SLO Issue - {{ .GroupLabels.sloth_service }}
+      {{- end -}}
+    {{- end }}
+
+    {{ define "slo.email.body" -}}
+      Service Level Objective Alert
+
+      Service: {{ .GroupLabels.sloth_service }}
+      SLO: {{ .GroupLabels.sloth_slo }}
+      Status: {{ .Status | toUpper }}
+
+      {{- if .CommonAnnotations.error_budget_remaining }}
+      Error Budget Remaining: {{ .CommonAnnotations.error_budget_remaining }}%
+      {{- end }}
+      {{- if .CommonAnnotations.burn_rate }}
+      Current Burn Rate: {{ .CommonAnnotations.burn_rate }}x normal
+      {{- end }}
+
+      {{ if gt (len .Alerts.Firing) 0 -}}
+      FIRING ALERTS:
+      {{ range .Alerts.Firing -}}
+
+      Alert: {{ .Labels.alertname }}
+      {{- if .Annotations.summary }}
+      Summary: {{ .Annotations.summary }}
+      {{- end }}
+      {{- if .Annotations.description }}
+      Description: {{ .Annotations.description }}
+      {{- end }}
+      {{- if .Annotations.runbook_url }}
+      Runbook: {{ .Annotations.runbook_url }}
+      {{- end }}
+      {{- if .Annotations.dashboard_url }}
+      Dashboard: {{ .Annotations.dashboard_url }}
+      {{- end }}
+      Started: {{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}
+      {{ end }}
+      {{- end }}
+
+      {{ if gt (len .Alerts.Resolved) 0 -}}
+      RESOLVED ALERTS:
+      {{ range .Alerts.Resolved -}}
+
+      Alert: {{ .Labels.alertname }}
+      {{- if .Annotations.summary }}
+      Summary: {{ .Annotations.summary }}
+      {{- end }}
+      Started: {{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}
+      Resolved: {{ .EndsAt.Format "2006-01-02 15:04:05 UTC" }}
+      {{ end }}
+      {{- end }}
+
+      ---
+      This alert was generated by the Observability Platform AlertManager
+      Environment: {{ .GroupLabels.cluster | default "production" }}
+      {{- if .ExternalURL }}
+      AlertManager: {{ .ExternalURL }}
+      {{- end }}
+    {{- end }}
+
+  # Infrastructure component templates
+  infrastructure.tmpl: |
+    {{ define "infra.slack.title" -}}
+      {{- template "__alert_severity_prefix" . }} Infrastructure: {{ .GroupLabels.alertname }}
+    {{- end }}
+
+    {{ define "infra.slack.text" -}}
+      *Component:* {{ .GroupLabels.service | default .GroupLabels.job }}
+      *Environment:* {{ .GroupLabels.cluster | default "production" }}
+      {{- if .GroupLabels.namespace }}
+      *Namespace:* {{ .GroupLabels.namespace }}
+      {{- end }}
+
+      {{ range .Alerts.Firing -}}
+      *Alert:* {{ .Labels.alertname }}
+      {{- if .Labels.instance }}
+      *Instance:* {{ .Labels.instance }}
+      {{- end }}
+      {{- if .Annotations.summary }}
+      *Summary:* {{ .Annotations.summary }}
+      {{- end }}
+      {{- if .Annotations.description }}
+      *Details:* {{ .Annotations.description }}
+      {{- end }}
+      {{- if .Annotations.runbook_url }}
+      *Runbook:* <{{ .Annotations.runbook_url }}|Troubleshooting Guide>
+      {{- end }}
+
+      {{ end -}}
+    {{- end }}
+
+  # Security alert templates
+  security.tmpl: |
+    {{ define "security.slack.title" -}}
+      🚨 SECURITY ALERT: {{ .GroupLabels.alertname }}
+    {{- end }}
+
+    {{ define "security.slack.text" -}}
+      *Alert Type:* {{ .GroupLabels.category | default "Security Incident" }}
+      *Severity:* {{ .CommonLabels.severity | upper }}
+      *Environment:* {{ .GroupLabels.cluster | default "production" }}
+
+      {{ range .Alerts.Firing -}}
+      *Incident:* {{ .Labels.alertname }}
+      {{- if .Labels.source }}
+      *Source:* {{ .Labels.source }}
+      {{- end }}
+      {{- if .Labels.target }}
+      *Target:* {{ .Labels.target }}
+      {{- end }}
+      {{- if .Annotations.summary }}
+      *Summary:* {{ .Annotations.summary }}
+      {{- end }}
+      {{- if .Annotations.description }}
+      *Details:* {{ .Annotations.description }}
+      {{- end }}
+      {{- if .Annotations.remediation }}
+      *Immediate Action Required:* {{ .Annotations.remediation }}
+      {{- end }}
+
+      {{ end -}}
+
+      *🔒 This is a security-sensitive alert. Please follow incident response procedures.*
+    {{- end }}
+
+    {{ define "security.email.subject" -}}
+      🚨 SECURITY ALERT: {{ .GroupLabels.alertname }} [{{ .CommonLabels.severity | upper }}]
+    {{- end }}
+
+  # Teams webhook template
+  teams.tmpl: |
+    {{ define "teams.card" -}}
+    {
+      "@type": "MessageCard",
+      "@context": "http://schema.org/extensions",
+      "themeColor": "{{ if eq .Status "firing" }}{{ if eq .CommonLabels.severity "critical" }}FF0000{{ else if eq .CommonLabels.severity "high" }}FF8C00{{ else }}FFD700{{ end }}{{ else }}00FF00{{ end }}",
+      "summary": "{{ .GroupLabels.alertname }}",
+      "sections": [{
+        "activityTitle": "{{ template "__alert_severity_prefix_title" . }}: {{ .GroupLabels.alertname }}",
+        "activitySubtitle": "{{ .CommonAnnotations.summary }}",
+        "facts": [
+          {{- if .GroupLabels.service }}
+          {
+            "name": "Service",
+            "value": "{{ .GroupLabels.service }}"
+          },
+          {{- end }}
+          {{- if .CommonLabels.severity }}
+          {
+            "name": "Severity",
+            "value": "{{ .CommonLabels.severity | title }}"
+          },
+          {{- end }}
+          {
+            "name": "Status",
+            "value": "{{ .Status | title }}"
+          },
+          {
+            "name": "Environment",
+            "value": "{{ .GroupLabels.cluster | default "production" }}"
+          }
+        ],
+        "markdown": true
+      }],
+      "potentialAction": [
+        {{- if .CommonAnnotations.runbook_url }}
+        {
+          "@type": "OpenUri",
+          "name": "View Runbook",
+          "targets": [{
+            "os": "default",
+            "uri": "{{ .CommonAnnotations.runbook_url }}"
+          }]
+        },
+        {{- end }}
+        {{- if .CommonAnnotations.dashboard_url }}
+        {
+          "@type": "OpenUri",
+          "name": "View Dashboard",
+          "targets": [{
+            "os": "default",
+            "uri": "{{ .CommonAnnotations.dashboard_url }}"
+          }]
+        },
+        {{- end }}
+        {
+          "@type": "OpenUri",
+          "name": "AlertManager",
+          "targets": [{
+            "os": "default",
+            "uri": "{{ .ExternalURL }}"
+          }]
+        }
+      ]
+    }
+    {{- end }}

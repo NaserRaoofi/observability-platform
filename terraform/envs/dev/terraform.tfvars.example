@@ -8,6 +8,17 @@ project_name = "observability"
 # DynamoDB configuration
 dynamodb_billing_mode = "PAY_PER_REQUEST"
 
+# EKS cluster configuration (required for IAM roles)
+eks_cluster_name      = "observability-dev-cluster"
+eks_oidc_provider_arn = "arn:aws:iam::ACCOUNT_ID:oidc-provider/oidc.eks.us-west-2.amazonaws.com/id/EXAMPLE_ID"
+
+# Grafana configuration
+enable_grafana_dashboards = true
+grafana_org_id           = "1"
+create_grafana_workspace = false
+prometheus_endpoint      = "http://prometheus.monitoring.svc.cluster.local:9090"
+alertmanager_endpoint    = "http://alertmanager.monitoring.svc.cluster.local:9093"
+
 # Additional tags
 additional_tags = {
   Owner       = "platform-team"

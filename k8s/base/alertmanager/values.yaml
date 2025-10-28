@@ -1,0 +1,344 @@
+# AlertManager Helm Configuration
+# Official AlertManager chart for alert routing and notification
+
+# Global settings
+global:
+  clusterName: "observability-cluster"
+
+# Image configuration
+image:
+  repository: quay.io/prometheus/alertmanager
+  tag: v0.26.0
+  pullPolicy: IfNotPresent
+
+# Deployment configuration
+replicaCount: 3
+
+# Service account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: alertmanager
+
+# Pod security context
+podSecurityContext:
+  fsGroup: 65534
+  runAsGroup: 65534
+  runAsNonRoot: true
+  runAsUser: 65534
+
+# Security context
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65534
+
+# Resource limits
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# Node selector and affinity
+nodeSelector: {}
+
+tolerations: []
+
+# Pod anti-affinity for high availability
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - alertmanager
+          topologyKey: kubernetes.io/hostname
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 9093
+  targetPort: 9093
+  annotations: {}
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: alertmanager.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Persistence for AlertManager data
+persistence:
+  enabled: true
+  storageClass: gp3
+  accessModes:
+    - ReadWriteOnce
+  size: 10Gi
+  annotations: {}
+
+  # AlertManager configuration
+  config:
+    global:
+      # Global SMTP settings for email notifications
+      smtp_smarthost: "smtp.company.com:587"
+      smtp_from: "alertmanager@company.com"
+      smtp_auth_username: "alertmanager@company.com"
+      smtp_require_tls: true
+
+      # External URL for AlertManager console
+      external_url: "https://alertmanager.company.com"
+
+      # Default notification settings
+      resolve_timeout: "5m"
+
+    # Load custom notification templates
+    templates:
+      - "/etc/alertmanager/templates/*.tmpl" # Route configuration - how alerts are grouped and routed
+  route:
+    group_by: ["alertname", "cluster", "service"]
+    group_wait: 10s
+    group_interval: 10s
+    repeat_interval: 1h
+    receiver: "default-receiver"
+
+    routes:
+      # SLO Critical alerts - immediate escalation
+      - match:
+          severity: critical
+          alert_type: slo
+        receiver: "slo-critical"
+        group_wait: 0s
+        group_interval: 5m
+        repeat_interval: 15m
+        continue: true
+
+      # SLO High severity alerts
+      - match:
+          severity: high
+          alert_type: slo
+        receiver: "slo-high"
+        group_wait: 5s
+        group_interval: 10m
+        repeat_interval: 30m
+
+      # Infrastructure alerts
+      - match_re:
+          service: "(mimir|loki|tempo|otel-collector).*"
+        receiver: "infrastructure-team"
+        group_wait: 30s
+        repeat_interval: 2h
+
+      # Security alerts
+      - match:
+          severity: critical
+          category: security
+        receiver: "security-team"
+        group_wait: 0s
+        repeat_interval: 10m
+
+      # Default route for other alerts
+      - match: {}
+        receiver: "general-notifications"
+
+  # Inhibition rules - suppress alerts based on other alerts
+  inhibit_rules:
+    # Suppress warning alerts when critical alerts are firing
+    - source_match:
+        severity: "critical"
+      target_match:
+        severity: "warning"
+      equal: ["alertname", "cluster", "service"]
+
+    # Suppress individual component alerts when cluster alert fires
+    - source_match:
+        alertname: "ClusterDown"
+      target_match_re:
+        alertname: ".*(Down|Unavailable)"
+      equal: ["cluster"]
+
+  # Receivers - notification channel definitions
+  receivers:
+    - name: "default-receiver"
+      webhook_configs:
+        - url: "http://localhost:5001/webhook"
+
+    # SLO Critical alerts
+    - name: "slo-critical"
+      email_configs:
+        - to: "sre-oncall@company.com"
+          subject: '{{ template "slo.email.subject" . }}'
+          body: '{{ template "slo.email.body" . }}'
+
+    # SLO High severity alerts
+    - name: "slo-high"
+      email_configs:
+        - to: "sre-team@company.com"
+          subject: '{{ template "slo.email.subject" . }}'
+          body: '{{ template "slo.email.body" . }}'
+    # Infrastructure team alerts
+    - name: "infrastructure-team"
+      email_configs:
+        - to: "infrastructure@company.com"
+          subject: "Infrastructure Alert: {{ .GroupLabels.alertname }} [{{ .CommonLabels.severity | upper }}]"
+          body: |
+            Infrastructure Alert
+
+            Component: {{ .GroupLabels.service | default .GroupLabels.job }}
+            Environment: {{ .GroupLabels.cluster | default "production" }}
+            Severity: {{ .CommonLabels.severity | title }}
+
+            {{ range .Alerts.Firing -}}
+            Alert: {{ .Labels.alertname }}
+            {{ if .Labels.instance }}Instance: {{ .Labels.instance }}{{ end }}
+            {{ if .Annotations.summary }}Summary: {{ .Annotations.summary }}{{ end }}
+            {{ if .Annotations.description }}Details: {{ .Annotations.description }}{{ end }}
+            {{ if .Annotations.runbook_url }}Runbook: {{ .Annotations.runbook_url }}{{ end }}
+            Started: {{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}
+
+            {{ end }}
+
+    # Security team alerts
+    - name: "security-team"
+      email_configs:
+        - to: "security@company.com"
+          subject: '{{ template "security.email.subject" . }}'
+          body: |
+            SECURITY ALERT
+
+            Alert Type: {{ .GroupLabels.category | default "Security Incident" }}
+            Severity: {{ .CommonLabels.severity | upper }}
+            Environment: {{ .GroupLabels.cluster | default "production" }}
+
+            {{ range .Alerts.Firing -}}
+            Incident: {{ .Labels.alertname }}
+            {{ if .Labels.source }}Source: {{ .Labels.source }}{{ end }}
+            {{ if .Labels.target }}Target: {{ .Labels.target }}{{ end }}
+            {{ if .Annotations.summary }}Summary: {{ .Annotations.summary }}{{ end }}
+            {{ if .Annotations.description }}Details: {{ .Annotations.description }}{{ end }}
+            {{ if .Annotations.remediation }}Immediate Action Required: {{ .Annotations.remediation }}{{ end }}
+            Started: {{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}
+
+            {{ end }}
+
+            This is a security-sensitive alert. Please follow incident response procedures.
+
+    # General notifications
+    - name: "general-notifications"
+      email_configs:
+        - to: "alerts@company.com"
+          subject: "General Alert: {{ .GroupLabels.alertname }}"
+          body: '{{ template "slack.default.text" . }}'
+
+    # SLO warning level alerts
+    - name: "slo-warning"
+      email_configs:
+        - to: "slo-monitoring@company.com"
+          subject: '{{ template "slo.email.subject" . }}'
+          body: '{{ template "slo.email.body" . }}'
+
+  # Alert templates
+  templates:
+    - "/etc/alertmanager/templates/*.tmpl"
+
+# External URL configuration
+externalUrl: "http://alertmanager.observability.local"
+
+# Storage retention
+retention: 120h
+
+# Web configuration
+web:
+  route_prefix: /
+  external_url: http://alertmanager.observability.local
+
+# Pod annotations for metrics scraping
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9093"
+  prometheus.io/path: "/metrics"
+
+# Pod labels
+podLabels:
+  app.kubernetes.io/component: alertmanager
+  app.kubernetes.io/part-of: observability-stack
+
+# Service monitor for Prometheus/Mimir scraping
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+  path: /metrics
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+
+# Pod disruption budget
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1
+
+# Priority class for scheduling
+priorityClassName: observability-important
+
+# Additional volumes for templates
+extraVolumes:
+  - name: template-config
+    configMap:
+      name: alertmanager-templates
+
+# Additional volume mounts
+extraVolumeMounts:
+  - name: template-config
+    mountPath: /etc/alertmanager/templates
+    readOnly: true
+
+# Environment variables
+extraEnvs: []
+
+# Command line arguments
+extraArgs:
+  log.level: info
+  log.format: json
+
+# Configure cluster peer discovery for HA
+configmapReload:
+  enabled: true
+  image:
+    repository: jimmidyson/configmap-reload
+    tag: v0.8.0
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      cpu: 10m
+      memory: 10Mi
+    requests:
+      cpu: 10m
+      memory: 10Mi
+
+# StatefulSet configuration for clustering
+statefulSet:
+  enabled: true
+
+# Cluster configuration
+cluster:
+  enabled: true
+  peers:
+    - alertmanager-0.alertmanager.observability.svc.cluster.local:9094
+    - alertmanager-1.alertmanager.observability.svc.cluster.local:9094
+    - alertmanager-2.alertmanager.observability.svc.cluster.local:9094
