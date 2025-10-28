@@ -1,0 +1,500 @@
+# OpenTelemetry Collector Gateway Configuration
+# Deployment mode for centralized telemetry processing
+
+# Global settings
+global:
+  clusterName: "observability-cluster"
+
+# OpenTelemetry Collector mode - Gateway deployment
+mode: deployment
+
+# Image configuration
+image:
+  repository: otel/opentelemetry-collector-contrib
+  tag: "0.88.0"
+  pullPolicy: IfNotPresent
+
+# Replica configuration
+replicaCount: 2
+
+# Command to run
+command:
+  name: otelcol-contrib
+  extraArgs: []
+
+# Service account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: "otel-collector-gateway"
+
+# OpenTelemetry Collector Gateway configuration
+config:
+  # Receivers - Gateway receives from agents and applications
+  receivers:
+    # OTLP receiver for data from agents and applications
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+          max_recv_msg_size: 67108864 # 64MB
+        http:
+          endpoint: 0.0.0.0:4318
+
+    # Jaeger receiver for direct application connections
+    jaeger:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:14250
+        thrift_http:
+          endpoint: 0.0.0.0:14268
+
+    # Zipkin receiver
+    zipkin:
+      endpoint: 0.0.0.0:9411
+
+    # Prometheus receiver for scraping gateway metrics
+    prometheus:
+      config:
+        scrape_configs:
+          - job_name: "otel-gateway"
+            static_configs:
+              - targets: ["localhost:8888"]
+            scrape_interval: 30s
+
+  # Processors - Advanced processing for gateway
+  processors:
+    # Memory limiter with higher limits for gateway
+    memory_limiter:
+      limit_mib: 1024
+      spike_limit_mib: 256
+      check_interval: 5s
+
+    # Batch processor with larger batches for efficiency
+    batch:
+      timeout: 2s
+      send_batch_size: 2048
+      send_batch_max_size: 4096
+
+    # Resource processor for gateway-level enrichment
+    resource:
+      attributes:
+        - key: cluster.name
+          value: "observability-cluster"
+          action: upsert
+        - key: deployment.environment
+          value: "dev"
+          action: upsert
+        - key: telemetry.gateway
+          value: "true"
+          action: upsert
+
+    # Probabilistic sampler for trace sampling
+    probabilistic_sampler:
+      hash_seed: 22
+      sampling_percentage: 10.0
+
+    # Tail sampling processor for intelligent sampling
+    tail_sampling:
+      decision_wait: 10s
+      num_traces: 50000
+      expected_new_traces_per_sec: 100
+      policies:
+        # Always sample traces with errors
+        - name: error-sampling
+          type: status_code
+          status_code:
+            status_codes: [ERROR]
+        # Sample slow traces
+        - name: latency-sampling
+          type: latency
+          latency:
+            threshold_ms: 1000
+        # Probabilistic sampling for everything else
+        - name: probabilistic-sampling
+          type: probabilistic
+          probabilistic:
+            sampling_percentage: 5.0
+
+    # Span processor for trace enrichment
+    span:
+      name:
+        # Rename spans to more readable names
+        to_attributes:
+          rules:
+            - key: http.method
+              pattern: ^(.*)$
+              name_pattern: "HTTP ${http.method} ${http.route}"
+
+    # Attributes processor for data enrichment
+    attributes:
+      actions:
+        # Remove sensitive data
+        - key: http.request.header.authorization
+          action: delete
+        - key: http.request.header.cookie
+          action: delete
+        # Normalize service names
+        - key: service.name
+          from_attribute: k8s.deployment.name
+          action: update
+
+    # Transform processor for advanced data manipulation
+    transform:
+      error_mode: ignore
+      metric_statements:
+        - context: metric
+          statements:
+            # Add cluster information to all metrics
+            - set(attributes["cluster"], "observability-cluster")
+            # Normalize container metrics
+            - set(name, "container_cpu_usage_rate") where name == "container.cpu.usage"
+      trace_statements:
+        - context: span
+          statements:
+            # Add cluster info to spans
+            - set(attributes["cluster"], "observability-cluster")
+            # Enhance HTTP spans
+            - set(attributes["http.status_class"], "2xx") where attributes["http.status_code"] >= 200 and attributes["http.status_code"] < 300
+            - set(attributes["http.status_class"], "3xx") where attributes["http.status_code"] >= 300 and attributes["http.status_code"] < 400
+            - set(attributes["http.status_class"], "4xx") where attributes["http.status_code"] >= 400 and attributes["http.status_code"] < 500
+            - set(attributes["http.status_class"], "5xx") where attributes["http.status_code"] >= 500
+
+    # Groupbyattrs processor for cardinality management
+    groupbyattrs:
+      keys:
+        - service.name
+        - service.version
+        - deployment.environment
+
+  # Connectors for data correlation
+  connectors:
+    # Spanmetrics connector to generate metrics from traces
+    spanmetrics:
+      histogram_buckets:
+        [
+          100us,
+          1ms,
+          2ms,
+          6ms,
+          10ms,
+          100ms,
+          250ms,
+          500ms,
+          1000ms,
+          1400ms,
+          2000ms,
+          5s,
+          10s,
+          20s,
+          40s,
+          60s,
+        ]
+      dimensions:
+        - name: http.method
+          default: GET
+        - name: http.status_code
+        - name: service.version
+      exemplars:
+        enabled: true
+      events:
+        enabled: true
+        dimensions:
+          - name: exception.type
+          - name: exception.message
+
+    # Servicegraph connector for service topology
+    servicegraph:
+      metrics:
+        histogram_buckets:
+          [
+            100us,
+            1ms,
+            2ms,
+            6ms,
+            10ms,
+            100ms,
+            250ms,
+            500ms,
+            1000ms,
+            1400ms,
+            2000ms,
+            5s,
+            10s,
+            20s,
+            40s,
+            60s,
+          ]
+      dimensions:
+        - service.namespace
+        - service.version
+      store:
+        ttl: 2s
+        max_items: 1000
+
+  # Exporters - Gateway exports to backends
+  exporters:
+    # OTLP exporter for traces to Tempo
+    otlp/tempo:
+      endpoint: tempo-gateway.observability.svc.cluster.local:4317
+      tls:
+        insecure: true
+      sending_queue:
+        enabled: true
+        num_consumers: 10
+        queue_size: 1000
+      retry_on_failure:
+        enabled: true
+        initial_interval: 1s
+        max_interval: 30s
+        max_elapsed_time: 300s
+
+    # Prometheus remote write for metrics to Mimir
+    prometheusremotewrite/mimir:
+      endpoint: http://mimir-gateway.observability.svc.cluster.local:8080/api/v1/push
+      tls:
+        insecure: true
+      resource_to_telemetry_conversion:
+        enabled: true
+      target_info:
+        enabled: true
+      sending_queue:
+        enabled: true
+        num_consumers: 10
+        queue_size: 2000
+      retry_on_failure:
+        enabled: true
+        initial_interval: 1s
+        max_interval: 30s
+
+    # Loki exporter for logs
+    loki:
+      endpoint: http://loki-gateway.observability.svc.cluster.local:3100/loki/api/v1/push
+      tenant_id: ""
+      labels:
+        attributes:
+          service.name: "service_name"
+          service.version: "service_version"
+        resource:
+          k8s.pod.name: "pod_name"
+          k8s.namespace.name: "namespace"
+          k8s.container.name: "container"
+      sending_queue:
+        enabled: true
+        num_consumers: 5
+        queue_size: 1000
+
+    # Debug exporter for troubleshooting
+    debug:
+      verbosity: normal
+      use_internal_logger: true
+
+    # Logging exporter for debugging
+    logging:
+      loglevel: info
+      sampling_initial: 5
+      sampling_thereafter: 200
+
+  # Extensions
+  extensions:
+    # Health check extension
+    health_check:
+      endpoint: 0.0.0.0:13133
+      check_collector_pipeline:
+        enabled: true
+        interval: 5m
+        exporter_failure_threshold: 5
+
+    # pprof extension for profiling
+    pprof:
+      endpoint: 0.0.0.0:1777
+
+    # zpages extension for internal metrics
+    zpages:
+      endpoint: 0.0.0.0:55679
+
+    # File storage extension for persistent queues
+    file_storage:
+      directory: /tmp/otel_storage
+
+  # Service configuration - Gateway pipelines
+  service:
+    extensions: [health_check, pprof, zpages, file_storage]
+    pipelines:
+      # Traces pipeline with advanced processing
+      traces:
+        receivers: [otlp, jaeger, zipkin]
+        processors:
+          [
+            memory_limiter,
+            batch,
+            resource,
+            attributes,
+            span,
+            tail_sampling,
+            transform,
+          ]
+        exporters: [otlp/tempo, spanmetrics, servicegraph]
+
+      # Metrics pipeline (including generated metrics from traces)
+      metrics:
+        receivers: [otlp, prometheus, spanmetrics, servicegraph]
+        processors: [memory_limiter, resource, groupbyattrs, transform, batch]
+        exporters: [prometheusremotewrite/mimir]
+
+      # Logs pipeline
+      logs:
+        receivers: [otlp]
+        processors: [memory_limiter, resource, attributes, transform, batch]
+        exporters: [loki]
+
+    # Telemetry configuration
+    telemetry:
+      logs:
+        level: "info"
+        development: false
+        encoding: "json"
+      metrics:
+        level: detailed
+        address: 0.0.0.0:8888
+
+# Resource configuration for gateway
+resources:
+  limits:
+    cpu: 1000m
+    memory: 2Gi
+  requests:
+    cpu: 500m
+    memory: 1Gi
+
+# Horizontal Pod Autoscaler
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Service configuration
+service:
+  type: ClusterIP
+
+# Ports configuration
+ports:
+  # OTLP receivers
+  otlp:
+    enabled: true
+    containerPort: 4317
+    servicePort: 4317
+    protocol: TCP
+  otlp-http:
+    enabled: true
+    containerPort: 4318
+    servicePort: 4318
+    protocol: TCP
+
+  # Jaeger receivers
+  jaeger-grpc:
+    enabled: true
+    containerPort: 14250
+    servicePort: 14250
+    protocol: TCP
+  jaeger-thrift-http:
+    enabled: true
+    containerPort: 14268
+    servicePort: 14268
+    protocol: TCP
+
+  # Zipkin receiver
+  zipkin:
+    enabled: true
+    containerPort: 9411
+    servicePort: 9411
+    protocol: TCP
+
+  # Management ports
+  metrics:
+    enabled: true
+    containerPort: 8888
+    servicePort: 8888
+    protocol: TCP
+
+# Persistence for file storage
+persistence:
+  enabled: true
+  storageClass: gp3
+  accessModes:
+    - ReadWriteOnce
+  size: 8Gi
+
+# Security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false
+
+# Pod security context
+podSecurityContext:
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+# Service monitor
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+
+# Pod disruption budget
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1
+
+# Network policy
+networkPolicy:
+  enabled: false
+
+# Annotations
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8888"
+  prometheus.io/path: "/metrics"
+
+# Labels
+podLabels:
+  app.kubernetes.io/component: otel-collector-gateway
+  app.kubernetes.io/part-of: observability-stack
+
+# Environment variables
+extraEnvs: []
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity - prefer different nodes for HA
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - opentelemetry-collector
+              - key: app.kubernetes.io/component
+                operator: In
+                values:
+                  - otel-collector-gateway
+          topologyKey: kubernetes.io/hostname

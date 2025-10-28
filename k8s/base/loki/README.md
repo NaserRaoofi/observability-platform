@@ -6,7 +6,7 @@ This directory contains Grafana Loki configuration using the official `grafana/l
 
 Loki is a horizontally scalable, highly available log aggregation system that provides:
 
-- **Log Aggregation**: Collect logs from all Kubernetes pods via Promtail
+- **Log Aggregation**: Collect logs from all Kubernetes pods via OpenTelemetry Collector
 - **Long-term Storage**: S3 backend with DynamoDB indexing for fast queries
 - **Label-based Indexing**: Efficient log querying using labels instead of full-text indexing
 - **LogQL Queries**: Powerful log analysis with Prometheus-style query language
@@ -16,10 +16,10 @@ Loki is a horizontally scalable, highly available log aggregation system that pr
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Promtail      │───▶│      Loki       │───▶│   Grafana       │
+│ OTel Collector  │───▶│      Loki       │───▶│   Grafana       │
 │  (DaemonSet)    │    │   Gateway       │    │ (Log Queries)   │
 │                 │    │ ┌─────────────┐ │    │                 │
-│ Pod Log         │    │ │Write/Read   │ │    │                 │
+│ Unified Log     │    │ │Write/Read   │ │    │                 │
 │ Collection      │    │ │Components   │ │    │                 │
 └─────────────────┘    │ └─────────────┘ │    └─────────────────┘
                        │ ┌─────────────┐ │
@@ -60,7 +60,7 @@ Loki is a horizontally scalable, highly available log aggregation system that pr
 
 ### **Write Components** (3 replicas)
 
-- **Distributor**: Log ingestion from Promtail
+- **Distributor**: Log ingestion from OpenTelemetry Collector
 - **Ingester**: Memory buffering and S3 flushing
 
 ### **Read Components** (3 replicas)
@@ -79,7 +79,7 @@ Loki is a horizontally scalable, highly available log aggregation system that pr
 
 1. Terraform AWS resources (S3, DynamoDB, IAM)
 2. GP3 storage class in EKS cluster
-3. Promtail for log collection
+3. OpenTelemetry Collector for log collection
 
 ### **Helm Deployment**
 
@@ -93,14 +93,14 @@ helm upgrade --install loki grafana/loki \
   -f values.generated.yaml
 ```
 
-### **With Promtail**
+### **Log Collection**
 
-```bash
-# Deploy log collection agent
-helm upgrade --install promtail grafana/promtail \
-  --namespace observability \
-  -f k8s/base/promtail/values.yaml
-```
+Logs are collected by OpenTelemetry Collector's filelog receiver:
+
+- Automatically reads from `/var/log/pods/*/*/*.log`
+- Parses Kubernetes metadata (namespace, pod, container)
+- Enriches with Kubernetes attributes
+- Exports to Loki via HTTP API
 
 ## Validation
 
@@ -108,8 +108,8 @@ helm upgrade --install promtail grafana/promtail \
 # Check Loki pods
 kubectl get pods -n observability -l app.kubernetes.io/name=loki
 
-# Check Promtail DaemonSet
-kubectl get ds promtail -n observability
+# Check OTel Collector DaemonSet
+kubectl get ds otel-collector-agent -n observability
 
 # Test log query
 curl "http://loki-gateway.observability.svc.cluster.local:3100/loki/api/v1/query?query={namespace=\"default\"}"

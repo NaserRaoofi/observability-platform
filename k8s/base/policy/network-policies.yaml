@@ -1,0 +1,526 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: observability-default-deny
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    policy.kubernetes.io/type: security
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: otel-collector-agent-policy
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    component: otel-collector
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: opentelemetry-collector
+      app.kubernetes.io/instance: otel-collector-agent
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow OTLP gRPC/HTTP from applications
+    - from: []
+      ports:
+        - protocol: TCP
+          port: 4317 # OTLP gRPC
+        - protocol: TCP
+          port: 4318 # OTLP HTTP
+    # Allow Jaeger protocols from applications
+    - from: []
+      ports:
+        - protocol: TCP
+          port: 14250 # Jaeger gRPC
+        - protocol: TCP
+          port: 14268 # Jaeger HTTP
+        - protocol: UDP
+          port: 6831 # Jaeger compact
+        - protocol: UDP
+          port: 6832 # Jaeger binary
+    # Allow Zipkin from applications
+    - from: []
+      ports:
+        - protocol: TCP
+          port: 9411 # Zipkin HTTP
+    # Allow health checks
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: TCP
+          port: 13133 # Health check
+    # Allow metrics scraping
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: opentelemetry-collector
+      ports:
+        - protocol: TCP
+          port: 8888 # Metrics
+  egress:
+    # Allow DNS resolution
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow connection to Kubernetes API
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+    # Allow connection to kubelet for metrics
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 10250
+    # Allow connection to OTel Gateway
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: opentelemetry-collector
+              app.kubernetes.io/instance: otel-collector-gateway
+      ports:
+        - protocol: TCP
+          port: 4317
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: otel-collector-gateway-policy
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    component: otel-collector
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: opentelemetry-collector
+      app.kubernetes.io/instance: otel-collector-gateway
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow OTLP from agent
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: opentelemetry-collector
+              app.kubernetes.io/instance: otel-collector-agent
+      ports:
+        - protocol: TCP
+          port: 4317
+    # Allow OTLP from applications directly
+    - from: []
+      ports:
+        - protocol: TCP
+          port: 4317
+        - protocol: TCP
+          port: 4318
+    # Allow health checks
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: TCP
+          port: 13133
+  egress:
+    # Allow DNS resolution
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow connection to Mimir
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mimir
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Allow connection to Loki
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: loki
+      ports:
+        - protocol: TCP
+          port: 3100
+    # Allow connection to Tempo
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: tempo
+      ports:
+        - protocol: TCP
+          port: 4317
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mimir-policy
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    component: mimir
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: mimir
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow queries from Grafana
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: grafana
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Allow writes from OTel Collector
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: opentelemetry-collector
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Allow inter-component communication
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mimir
+      ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 9095
+  egress:
+    # Allow DNS resolution
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow HTTPS for AWS S3/DynamoDB
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443
+    # Allow inter-component communication
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mimir
+      ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 9095
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: loki-policy
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    component: loki
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: loki
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow queries from Grafana
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: grafana
+      ports:
+        - protocol: TCP
+          port: 3100
+    # Allow writes from OTel Collector
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: opentelemetry-collector
+      ports:
+        - protocol: TCP
+          port: 3100
+    # Allow inter-component communication
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: loki
+      ports:
+        - protocol: TCP
+          port: 3100
+        - protocol: TCP
+          port: 9095
+  egress:
+    # Allow DNS resolution
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow HTTPS for AWS S3
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443
+    # Allow inter-component communication
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: loki
+      ports:
+        - protocol: TCP
+          port: 3100
+        - protocol: TCP
+          port: 9095
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tempo-policy
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    component: tempo
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: tempo
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow queries from Grafana
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: grafana
+      ports:
+        - protocol: TCP
+          port: 3200
+    # Allow traces from OTel Collector
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: opentelemetry-collector
+      ports:
+        - protocol: TCP
+          port: 4317
+    # Allow inter-component communication
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: tempo
+      ports:
+        - protocol: TCP
+          port: 3200
+  egress:
+    # Allow DNS resolution
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow HTTPS for AWS S3
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443
+    # Allow inter-component communication
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: tempo
+      ports:
+        - protocol: TCP
+          port: 3200
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: grafana-policy
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    component: grafana
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: grafana
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow web UI access
+    - from: []
+      ports:
+        - protocol: TCP
+          port: 3000
+  egress:
+    # Allow DNS resolution
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow queries to Mimir
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mimir
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Allow queries to Loki
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: loki
+      ports:
+        - protocol: TCP
+          port: 3100
+    # Allow queries to Tempo
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: tempo
+      ports:
+        - protocol: TCP
+          port: 3200
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: exporters-policy
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    component: exporters
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: observability-stack
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow metrics scraping from OTel Collector
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: opentelemetry-collector
+      ports:
+        - protocol: TCP
+          port: 8080 # Default metrics port
+        - protocol: TCP
+          port: 9100 # Node exporter
+        - protocol: TCP
+          port: 8081 # KSM
+        - protocol: TCP
+          port: 9115 # Blackbox
+        - protocol: TCP
+          port: 9113 # NGINX
+        - protocol: TCP
+          port: 9121 # Redis
+        - protocol: TCP
+          port: 9106 # CloudWatch
+  egress:
+    # Allow DNS resolution
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow connection to Kubernetes API for KSM
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+    # Allow HTTPS for CloudWatch API
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sloth-policy
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    component: sloth
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: sloth
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow metrics scraping
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: opentelemetry-collector
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # Allow DNS resolution
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow connection to Kubernetes API
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+    # Allow queries to Mimir for SLO calculations
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mimir
+      ports:
+        - protocol: TCP
+          port: 8080

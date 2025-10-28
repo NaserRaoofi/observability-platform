@@ -1,0 +1,154 @@
+apiVersion: sloth.slok.dev/v1
+kind: PrometheusServiceLevel
+metadata:
+  name: otel-collector-slos
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: otel-collector
+    app.kubernetes.io/component: slo
+    app.kubernetes.io/part-of: observability-stack
+spec:
+  service: "otel-collector"
+  labels:
+    team: "platform"
+    environment: "dev"
+    component: "telemetry-collection"
+  slos:
+    # SLO 1: Data Processing Success Rate
+    # Measures the success rate of telemetry data processing
+    - name: "processing-success-rate"
+      objective: 99.5
+      description: "99.5% of telemetry data processing should succeed"
+      sli:
+        events:
+          # Error query: failed processing events
+          errorQuery: |
+            sum(rate(otelcol_processor_dropped_metric_points_total[5m])) +
+            sum(rate(otelcol_processor_dropped_spans_total[5m])) +
+            sum(rate(otelcol_processor_dropped_log_records_total[5m]))
+          # Total query: all processing events
+          totalQuery: |
+            sum(rate(otelcol_processor_accepted_metric_points_total[5m])) +
+            sum(rate(otelcol_processor_accepted_spans_total[5m])) +
+            sum(rate(otelcol_processor_accepted_log_records_total[5m])) +
+            sum(rate(otelcol_processor_dropped_metric_points_total[5m])) +
+            sum(rate(otelcol_processor_dropped_spans_total[5m])) +
+            sum(rate(otelcol_processor_dropped_log_records_total[5m]))
+      alerting:
+        name: "OTelCollectorProcessingFailures"
+        labels:
+          category: "availability"
+          severity: "critical"
+        annotations:
+          summary: "OpenTelemetry Collector processing success rate is below SLO"
+          description: "OTel Collector processing success rate is {{ $value }}%, which is below the 99.5% SLO"
+          runbook_url: "https://runbooks.observability.dev/otel-collector/processing-failures"
+
+    # SLO 2: Export Success Rate
+    # Measures the success rate of data export to backends
+    - name: "export-success-rate"
+      objective: 99.0
+      description: "99% of data exports to backends should succeed"
+      sli:
+        events:
+          # Error query: failed exports
+          errorQuery: |
+            sum(rate(otelcol_exporter_send_failed_metric_points_total[5m])) +
+            sum(rate(otelcol_exporter_send_failed_spans_total[5m])) +
+            sum(rate(otelcol_exporter_send_failed_log_records_total[5m]))
+          # Total query: all export attempts
+          totalQuery: |
+            sum(rate(otelcol_exporter_sent_metric_points_total[5m])) +
+            sum(rate(otelcol_exporter_sent_spans_total[5m])) +
+            sum(rate(otelcol_exporter_sent_log_records_total[5m])) +
+            sum(rate(otelcol_exporter_send_failed_metric_points_total[5m])) +
+            sum(rate(otelcol_exporter_send_failed_spans_total[5m])) +
+            sum(rate(otelcol_exporter_send_failed_log_records_total[5m]))
+      alerting:
+        name: "OTelCollectorExportFailures"
+        labels:
+          category: "availability"
+          severity: "high"
+        annotations:
+          summary: "OpenTelemetry Collector export success rate is below SLO"
+          description: "OTel Collector export success rate is {{ $value }}%, which is below the 99% SLO"
+          runbook_url: "https://runbooks.observability.dev/otel-collector/export-failures"
+
+    # SLO 3: Queue Utilization
+    # Measures the health of internal queues
+    - name: "queue-utilization"
+      objective: 95.0
+      description: "95% of the time, queue utilization should be below 80%"
+      sli:
+        events:
+          # Error query: high queue utilization (>80%)
+          errorQuery: |
+            sum(otelcol_exporter_queue_size) > 0.8 * sum(otelcol_exporter_queue_capacity)
+          # Total query: always 1 for ratio calculation
+          totalQuery: |
+            sum(up{job=~".*otel.*"})
+      alerting:
+        name: "OTelCollectorHighQueueUtilization"
+        labels:
+          category: "performance"
+          severity: "medium"
+        annotations:
+          summary: "OpenTelemetry Collector queue utilization is high"
+          description: "OTel Collector queue utilization is above 80% for more than 5% of the time"
+          runbook_url: "https://runbooks.observability.dev/otel-collector/high-queue-utilization"
+
+    # SLO 4: Receiver Availability
+    # Measures the availability of telemetry receivers
+    - name: "receiver-availability"
+      objective: 99.9
+      description: "99.9% of receiver endpoints should be available"
+      sli:
+        events:
+          # Error query: receiver endpoint failures
+          errorQuery: |
+            sum(rate(otelcol_receiver_refused_metric_points_total[5m])) +
+            sum(rate(otelcol_receiver_refused_spans_total[5m])) +
+            sum(rate(otelcol_receiver_refused_log_records_total[5m]))
+          # Total query: all receiver requests
+          totalQuery: |
+            sum(rate(otelcol_receiver_accepted_metric_points_total[5m])) +
+            sum(rate(otelcol_receiver_accepted_spans_total[5m])) +
+            sum(rate(otelcol_receiver_accepted_log_records_total[5m])) +
+            sum(rate(otelcol_receiver_refused_metric_points_total[5m])) +
+            sum(rate(otelcol_receiver_refused_spans_total[5m])) +
+            sum(rate(otelcol_receiver_refused_log_records_total[5m]))
+      alerting:
+        name: "OTelCollectorReceiverUnavailable"
+        labels:
+          category: "availability"
+          severity: "critical"
+        annotations:
+          summary: "OpenTelemetry Collector receiver availability is below SLO"
+          description: "OTel Collector receiver availability is {{ $value }}%, which is below the 99.9% SLO"
+          runbook_url: "https://runbooks.observability.dev/otel-collector/receiver-unavailable"
+
+    # SLO 5: Memory Usage
+    # Measures memory usage health
+    - name: "memory-usage"
+      objective: 95.0
+      description: "95% of the time, memory usage should be below 80% of limit"
+      sli:
+        events:
+          # Error query: high memory usage (>80% of limit)
+          errorQuery: |
+            (
+              container_memory_working_set_bytes{pod=~"otel-collector.*", container="otc-container"} /
+              container_spec_memory_limit_bytes{pod=~"otel-collector.*", container="otc-container"}
+            ) > 0.8
+          # Total query: memory usage checks
+          totalQuery: |
+            count(container_memory_working_set_bytes{pod=~"otel-collector.*", container="otc-container"})
+      alerting:
+        name: "OTelCollectorHighMemoryUsage"
+        labels:
+          category: "performance"
+          severity: "medium"
+        annotations:
+          summary: "OpenTelemetry Collector memory usage is high"
+          description: "OTel Collector memory usage is above 80% of limit for more than 5% of the time"
+          runbook_url: "https://runbooks.observability.dev/otel-collector/high-memory-usage"

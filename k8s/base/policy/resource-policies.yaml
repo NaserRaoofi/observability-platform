@@ -1,0 +1,254 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: observability-compute-quota
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    policy.kubernetes.io/type: resource-management
+spec:
+  hard:
+    # CPU limits
+    requests.cpu: "8" # Total CPU requests
+    limits.cpu: "16" # Total CPU limits
+
+    # Memory limits
+    requests.memory: "16Gi" # Total memory requests
+    limits.memory: "32Gi" # Total memory limits
+
+    # Storage limits
+    requests.storage: "500Gi" # Total storage requests
+    persistentvolumeclaims: "20" # Max PVCs
+
+    # Object counts
+    count/deployments.apps: "10" # Max deployments
+    count/statefulsets.apps: "10" # Max statefulsets
+    count/daemonsets.apps: "10" # Max daemonsets
+    count/services: "20" # Max services
+    count/configmaps: "50" # Max configmaps
+    count/secrets: "30" # Max secrets
+
+    # Pod limits
+    count/pods: "100" # Max total pods
+    count/replicationcontrollers: "5" # Max RCs
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: observability-limits
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    policy.kubernetes.io/type: resource-management
+spec:
+  limits:
+    # Default limits for containers
+    - default:
+        cpu: "500m"
+        memory: "512Mi"
+      defaultRequest:
+        cpu: "100m"
+        memory: "128Mi"
+      type: Container
+
+    # Default limits for pods
+    - default:
+        cpu: "2"
+        memory: "4Gi"
+      defaultRequest:
+        cpu: "500m"
+        memory: "1Gi"
+      type: Pod
+
+    # Default limits for PVCs
+    - default:
+        storage: "10Gi"
+      type: PersistentVolumeClaim
+
+    # Min/max constraints
+    - min:
+        cpu: "10m"
+        memory: "32Mi"
+      max:
+        cpu: "4"
+        memory: "8Gi"
+      type: Container
+
+    - min:
+        cpu: "50m"
+        memory: "128Mi"
+      max:
+        cpu: "8"
+        memory: "16Gi"
+      type: Pod
+---
+# Priority Classes for observability workloads
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: observability-critical
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+value: 1000
+globalDefault: false
+description: "Priority class for critical observability components (Mimir, Loki, Tempo)"
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: observability-important
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+value: 500
+globalDefault: false
+description: "Priority class for important observability components (OTel Collector, Grafana)"
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: observability-standard
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+value: 100
+globalDefault: false
+description: "Priority class for standard observability components (Exporters, Sloth)"
+---
+# Network Policy for external access restrictions
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: observability-external-access
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    policy.kubernetes.io/type: security
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: observability-stack
+  policyTypes:
+    - Egress
+  egress:
+    # Allow DNS resolution
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # Allow HTTPS for cloud services (AWS, etc.)
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443
+
+    # Allow NTP for time synchronization
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 123
+
+  # Block all other external traffic
+  # (specific allow rules in component-specific policies)
+---
+# Pod Disruption Budget for high availability
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: mimir-pdb
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: mimir
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mimir
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: loki-pdb
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: loki
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: loki
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: tempo-pdb
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: tempo
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tempo
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: otel-collector-gateway-pdb
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: otel-collector
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: opentelemetry-collector
+      app.kubernetes.io/instance: otel-collector-gateway
+---
+# Horizontal Pod Autoscaler policies
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: otel-collector-gateway-hpa
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: otel-collector
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: otel-collector-gateway
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60
