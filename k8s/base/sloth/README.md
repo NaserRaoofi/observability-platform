@@ -54,13 +54,6 @@ Sloth is a tool that generates Prometheus recording rules and alerting rules bas
 - **Query Latency**: 95% of queries under 5 seconds
 - **Data Freshness**: 98% of logs appear within 30 seconds
 
-### **Prometheus Agent SLOs** (`slo-prometheus-agent.yaml`)
-
-- **Scrape Success Rate**: 99.5% of scrapes should succeed
-- **Remote Write Success**: 99.9% of remote writes should succeed
-- **Ingestion Latency**: 99% of metrics ingested within 30 seconds
-- **Target Discovery**: 99% of service discovery should work
-
 ### **Infrastructure SLOs** (`slo-infrastructure.yaml`)
 
 - **Stack Availability**: 99.5% of components should be healthy

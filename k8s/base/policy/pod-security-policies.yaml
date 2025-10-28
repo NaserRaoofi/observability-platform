@@ -1,0 +1,188 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+  labels:
+    # Pod Security Standards
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+    # Network Policy enforcement
+    network-policy.kubernetes.io/enforce: true
+---
+# Pod Security Policy for non-privileged components
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: observability-restricted
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    policy.kubernetes.io/type: security
+spec:
+  # Privilege and access controls
+  privileged: false
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+    - ALL
+  # Volume restrictions
+  volumes:
+    - "configMap"
+    - "emptyDir"
+    - "projected"
+    - "secret"
+    - "downwardAPI"
+    - "persistentVolumeClaim"
+  # Host restrictions
+  hostNetwork: false
+  hostIPC: false
+  hostPID: false
+  runAsUser:
+    rule: "MustRunAsNonRoot"
+  runAsGroup:
+    rule: "MustRunAs"
+    ranges:
+      - min: 10000
+        max: 65535
+  seLinux:
+    rule: "RunAsAny"
+  fsGroup:
+    rule: "MustRunAs"
+    ranges:
+      - min: 10000
+        max: 65535
+  # Security contexts
+  readOnlyRootFilesystem: true
+  # Resource controls
+  forbiddenSysctls:
+    - "*"
+---
+# Pod Security Policy for OTel Collector (needs hostPath access)
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: otel-collector-agent
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: otel-collector
+    policy.kubernetes.io/type: security
+spec:
+  # Privilege and access controls
+  privileged: false
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+    - ALL
+  # Volume restrictions (allows hostPath for log collection)
+  volumes:
+    - "configMap"
+    - "emptyDir"
+    - "projected"
+    - "secret"
+    - "downwardAPI"
+    - "hostPath" # Required for log collection from /var/log/pods
+  allowedHostPaths:
+    - pathPrefix: "/var/log/pods"
+      readOnly: true
+    - pathPrefix: "/var/lib/docker/containers"
+      readOnly: true
+  # Host restrictions
+  hostNetwork: false
+  hostIPC: false
+  hostPID: false
+  runAsUser:
+    rule: "MustRunAsNonRoot"
+  runAsGroup:
+    rule: "MustRunAs"
+    ranges:
+      - min: 10000
+        max: 65535
+  seLinux:
+    rule: "RunAsAny"
+  fsGroup:
+    rule: "MustRunAs"
+    ranges:
+      - min: 10000
+        max: 65535
+  # Security contexts
+  readOnlyRootFilesystem: true
+  # Resource controls
+  forbiddenSysctls:
+    - "*"
+---
+# Pod Security Policy for Node Exporter (needs host access)
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: node-exporter
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: node-exporter
+    policy.kubernetes.io/type: security
+spec:
+  # Privilege and access controls
+  privileged: false
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+    - ALL
+  # Volume restrictions (allows hostPath for host metrics)
+  volumes:
+    - "configMap"
+    - "emptyDir"
+    - "projected"
+    - "secret"
+    - "hostPath"
+  allowedHostPaths:
+    - pathPrefix: "/proc"
+      readOnly: true
+    - pathPrefix: "/sys"
+      readOnly: true
+    - pathPrefix: "/"
+      readOnly: true
+  # Host restrictions (needs host network for accurate metrics)
+  hostNetwork: true
+  hostIPC: false
+  hostPID: true # Required for process metrics
+  runAsUser:
+    rule: "RunAsAny" # Node exporter traditionally runs as root
+  seLinux:
+    rule: "RunAsAny"
+  fsGroup:
+    rule: "RunAsAny"
+  # Security contexts
+  readOnlyRootFilesystem: true
+  # Resource controls
+  forbiddenSysctls:
+    - "*"
+---
+# Security Context Constraints for OpenShift (if applicable)
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: observability-scc
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+allowHostDirVolumePlugin: false
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+allowPrivilegedContainer: false
+allowedCapabilities: []
+defaultAddCapabilities: []
+requiredDropCapabilities:
+  - ALL
+fsGroup:
+  type: MustRunAs
+  ranges:
+    - min: 10000
+      max: 65535
+runAsUser:
+  type: MustRunAsNonRoot
+seLinuxContext:
+  type: MustRunAs
+volumes:
+  - configMap
+  - downwardAPI
+  - emptyDir
+  - persistentVolumeClaim
+  - projected
+  - secret

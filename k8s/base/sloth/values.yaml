@@ -201,37 +201,6 @@ sloDefinitions:
                 summary: "Loki requests availability is below SLO"
                 description: "Loki availability is {{ $value }}% which is below the 99.5% SLO"
 
-    # Prometheus Agent data freshness SLO
-    prometheus-freshness:
-      apiVersion: sloth.slok.dev/v1
-      kind: PrometheusServiceLevel
-      metadata:
-        name: prometheus-freshness
-        namespace: observability
-        labels:
-          app.kubernetes.io/part-of: observability-stack
-      spec:
-        service: "prometheus-agent"
-        labels:
-          team: "observability"
-          component: "metrics-collection"
-        slos:
-          - name: "data-freshness"
-            objective: 99.0
-            description: "99% of metrics should be fresher than 5 minutes"
-            sli:
-              events:
-                errorQuery: 'sum(prometheus_tsdb_symbol_table_size_bytes{job="prometheus-agent"} < bool (time() - 300))'
-                totalQuery: 'sum(prometheus_tsdb_symbol_table_size_bytes{job="prometheus-agent"} * 0 + 1)'
-            alerting:
-              name: PrometheusDataFreshness
-              labels:
-                category: freshness
-                severity: warning
-              annotations:
-                summary: "Prometheus data is stale"
-                description: "Prometheus data freshness is below SLO threshold"
-
 # Ingress configuration (optional)
 ingress:
   enabled: false
