@@ -6,14 +6,14 @@ A comprehensive, production-ready observability stack built with professional He
 
 ```
 ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
-│   MONITORING    │   │      LOGS       │   │     TRACES      │   │   LONG-TERM     │   │    SLI/SLO     │
+│   EXPORTERS     │   │  OTEL COLLECTOR │   │     TRACES      │   │   LONG-TERM     │   │    SLI/SLO     │
 │                 │   │                 │   │                 │   │    STORAGE      │   │   MONITORING    │
-│ • Node Export   │   │ • Promtail     │   │ • OTLP/gRPC    │   │                 │   │                 │
-│ • KubState Met  │──▶│ • Log Pipeline │──▶│ • Jaeger       │──▶│ • Mimir (S3)    │◀──│ • Sloth         │
-│ • BlackBox      │   │ • Log Parsing  │   │ • Zipkin       │   │ • Loki (S3)     │   │ • 19 SLOs       │
-│ • Nginx Export  │   │                 │   │ • TraceQL      │   │ • Tempo (S3)    │   │ • Error Budget  │
-│ • Redis Export  │   │                 │   │ • Metrics Gen  │   │ • DynamoDB IDX  │   │ • Multi-Window  │
-│ • CloudWatch    │   │                 │   │                 │   │                 │   │   Alerting     │
+│ • Node Export   │   │ • Unified Agent │   │ • OTLP/gRPC    │   │                 │   │                 │
+│ • KubState Met  │──▶│ • Prometheus SD │──▶│ • Jaeger       │──▶│ • Mimir (S3)    │◀──│ • Sloth         │
+│ • BlackBox      │   │ • Filelog Recv  │   │ • Zipkin       │   │ • Loki (S3)     │   │ • 21 SLOs       │
+│ • Nginx Export  │   │ • Advanced Proc │   │ • TraceQL      │   │ • Tempo (S3)    │   │ • Error Budget  │
+│ • Redis Export  │   │ • K8s Metadata  │   │ • Sampling     │   │ • DynamoDB IDX  │   │ • Multi-Window  │
+│ • CloudWatch    │   │ • Multi-Export  │   │ • Correlation  │   │                 │   │   Alerting     │
 └─────────────────┘   └─────────────────┘   └─────────────────┘   └─────────────────┘   └─────────────────┘
         │                       │                       │                       │                       │
         ▼                       ▼                       ▼                       ▲                       ▲
@@ -77,17 +77,17 @@ kubectl get prometheusservicelevel -n observability -o wide
 
 ### **🔄 Metrics Processing**
 
-| Component            | Purpose            | Mode        | Configuration         |
-| -------------------- | ------------------ | ----------- | --------------------- |
-| **Prometheus Agent** | Metrics collection | Agent-only  | Scrape + Remote Write |
-| **Mimir**            | Long-term storage  | Distributed | S3 + DynamoDB backend |
+| Component          | Purpose            | Mode          | Configuration           |
+| ------------------ | ------------------ | ------------- | ----------------------- |
+| **OTel Collector** | Unified collection | Agent+Gateway | Multi-protocol pipeline |
+| **Mimir**          | Long-term storage  | Distributed   | S3 + DynamoDB backend   |
 
 ### **📋 Log Management**
 
-| Component    | Purpose         | Deployment     | Backend         |
-| ------------ | --------------- | -------------- | --------------- |
-| **Promtail** | Log collection  | DaemonSet      | Kubernetes logs |
-| **Loki**     | Log aggregation | SimpleScalable | S3 + DynamoDB   |
+| Component          | Purpose         | Deployment     | Backend         |
+| ------------------ | --------------- | -------------- | --------------- |
+| **OTel Collector** | Log collection  | DaemonSet      | Kubernetes logs |
+| **Loki**           | Log aggregation | SimpleScalable | S3 + DynamoDB   |
 
 ### **� Distributed Tracing**
 
@@ -181,7 +181,7 @@ repositories:
     url: https://slok.github.io/sloth
 
 releases:
-  # 6 exporters + prometheus-agent + mimir + loki + promtail + tempo + sloth
+  # 6 exporters + otel-collector + mimir + loki + tempo + sloth
   - name: node-exporter
     chart: prometheus-community/node-exporter
   # ... (10 more components)
@@ -285,15 +285,16 @@ docs/
 
 k8s/base/
 ├── exporters/              # 6 metric exporters
-├── prometheus-agent/       # Metrics collection
+├── otel-collector/         # Unified telemetry collection
 ├── mimir/                  # Long-term storage
 ├── loki/                   # Log aggregation
-├── promtail/              # Log collection
+├── tempo/                  # Distributed tracing
 └── sloth/                 # SLI/SLO monitoring
     ├── values.yaml        # Sloth configuration
     ├── slo-mimir.yaml     # Mimir SLOs
     ├── slo-loki.yaml      # Loki SLOs
-    ├── slo-prometheus-agent.yaml # Agent SLOs
+    ├── slo-tempo.yaml     # Tempo SLOs
+    ├── slo-otel-collector.yaml # OTel SLOs
     └── slo-infrastructure.yaml   # Infra SLOs
 ```
 

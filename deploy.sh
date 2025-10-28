@@ -189,6 +189,52 @@ create_namespace() {
     log_info "✓ Namespace '$NAMESPACE' ready"
 }
 
+# Function to deploy security policies
+deploy_security_policies() {
+    log_info "Deploying security policies..."
+
+    # Apply namespace-level security policies first
+    kubectl apply -f "$HELM_VALUES_DIR/policy/pod-security-policies.yaml"
+
+    # Apply RBAC policies
+    kubectl apply -f "$HELM_VALUES_DIR/policy/rbac.yaml"
+
+    # Apply resource management policies
+    kubectl apply -f "$HELM_VALUES_DIR/policy/resource-policies.yaml"
+
+    # Apply network policies (after namespace exists)
+    kubectl apply -f "$HELM_VALUES_DIR/policy/network-policies.yaml"
+
+    # Apply OPA Gatekeeper policies (if Gatekeeper is installed)
+    if kubectl get crd constrainttemplates.templates.gatekeeper.sh &>/dev/null; then
+        kubectl apply -f "$HELM_VALUES_DIR/policy/gatekeeper-policies.yaml"
+        log_info "✓ OPA Gatekeeper policies applied"
+    else
+        log_warn "⚠️ OPA Gatekeeper not found, skipping Gatekeeper policies"
+    fi
+
+    log_info "✓ Security policies deployed"
+}
+
+# Function to deploy OpenTelemetry Collector
+deploy_otel_collector() {
+    log_info "Deploying OpenTelemetry Collector..."
+
+    # Deploy OTel Collector Agent (DaemonSet)
+    helm upgrade --install otel-collector-agent open-telemetry/opentelemetry-collector \
+        --namespace "$NAMESPACE" \
+        -f "$HELM_VALUES_DIR/otel-collector/values.yaml" \
+        --wait
+
+    # Deploy OTel Collector Gateway (Deployment)
+    helm upgrade --install otel-collector-gateway open-telemetry/opentelemetry-collector \
+        --namespace "$NAMESPACE" \
+        -f "$HELM_VALUES_DIR/otel-collector/values-gateway.yaml" \
+        --wait
+
+    log_info "✓ OpenTelemetry Collector deployed (Agent + Gateway)"
+}
+
 # Function to deploy exporters
 deploy_exporters() {
     log_info "Deploying exporters..."
@@ -238,9 +284,9 @@ deploy_mimir() {
     log_info "✓ Mimir deployed successfully"
 }
 
-# Function to deploy Loki and Promtail
+# Function to deploy Loki
 deploy_loki_stack() {
-    log_info "Deploying Loki and Promtail..."
+    log_info "Deploying Loki..."
 
     # Check if Loki values file exists (generated from template)
     if [ -f "$HELM_VALUES_DIR/loki/values.generated.yaml" ]; then
@@ -253,30 +299,6 @@ deploy_loki_stack() {
     else
         log_warn "Loki values.generated.yaml not found, skipping Loki deployment"
     fi
-
-    # Deploy Promtail
-    helm upgrade --install promtail grafana/promtail \
-        --namespace "$NAMESPACE" \
-        -f "$HELM_VALUES_DIR/promtail/values.yaml" \
-        --wait
-
-    log_info "✓ Promtail deployed"
-}
-
-# Function to deploy Prometheus Agent
-deploy_prometheus_agent() {
-    log_info "Deploying Prometheus Agent..."
-
-    # Wait for Mimir gateway to be ready
-    log_info "Waiting for Mimir gateway..."
-    kubectl wait --for=condition=available deployment/mimir-gateway -n "$NAMESPACE" --timeout=300s
-
-    helm upgrade --install prometheus-agent prometheus-community/prometheus \
-        --namespace "$NAMESPACE" \
-        -f "$HELM_VALUES_DIR/prometheus-agent/values.yaml" \
-        --wait
-
-    log_info "✓ Prometheus Agent deployed"
 }
 
 # Function to deploy Tempo
@@ -320,7 +342,7 @@ deploy_sloth() {
     kubectl apply -f "$HELM_VALUES_DIR/sloth/slo-mimir.yaml" -n "$NAMESPACE"
     kubectl apply -f "$HELM_VALUES_DIR/sloth/slo-loki.yaml" -n "$NAMESPACE"
     kubectl apply -f "$HELM_VALUES_DIR/sloth/slo-tempo.yaml" -n "$NAMESPACE"
-    kubectl apply -f "$HELM_VALUES_DIR/sloth/slo-prometheus-agent.yaml" -n "$NAMESPACE"
+    kubectl apply -f "$HELM_VALUES_DIR/sloth/slo-otel-collector.yaml" -n "$NAMESPACE"
     kubectl apply -f "$HELM_VALUES_DIR/sloth/slo-infrastructure.yaml" -n "$NAMESPACE"
 
     log_info "✓ SLO definitions applied"
@@ -357,11 +379,12 @@ main() {
     template_tempo_values
     add_helm_repos
     create_namespace
+    deploy_security_policies
+    deploy_otel_collector
     deploy_exporters
     deploy_mimir
     deploy_loki_stack
     deploy_tempo
-    deploy_prometheus_agent
     deploy_sloth
     validate_deployment
 
@@ -371,18 +394,24 @@ main() {
     log_info "  - Mimir Gateway: kubectl port-forward -n $NAMESPACE svc/mimir-gateway 8080:8080"
     log_info "  - Loki Gateway:  kubectl port-forward -n $NAMESPACE svc/loki-gateway 3100:80"
     log_info "  - Tempo Gateway: kubectl port-forward -n $NAMESPACE svc/tempo-gateway 3200:80"
+    log_info "  - OTel Gateway:  kubectl port-forward -n $NAMESPACE svc/otel-collector-gateway 4317:4317"
     log_info ""
-    log_info "🔍 Components Deployed:"
-    log_info "  ✅ Metrics: 6x Exporters + Prometheus Agent + Mimir"
-    log_info "  ✅ Logs: Promtail + Loki"
+    log_info "🔍 Observability Stack Components:"
+    log_info "  ✅ Metrics: 6 Exporters + OpenTelemetry Collector + Mimir"
+    log_info "  ✅ Logs: OpenTelemetry Collector + Loki"
     log_info "  ✅ Traces: Tempo with OTLP/Jaeger/Zipkin receivers"
-    log_info "  ✅ SLI/SLO: Sloth with 19 SLO definitions"
+    log_info "  ✅ Unified Collection: OpenTelemetry Collector (Agent + Gateway)"
+    log_info "  ✅ SLI/SLO: Sloth with 21 SLO definitions"
+    log_info "  ✅ Security: Network Policies + RBAC + Pod Security + Resource Quotas"
     log_info ""
     log_info "📈 Next Steps:"
     log_info "  1. Configure Grafana with Mimir, Loki, and Tempo data sources"
     log_info "  2. Import SLO dashboards from Sloth"
     log_info "  3. Set up AlertManager for SLO alerts"
-    log_info "  4. Configure applications to send traces to Tempo"
+    log_info "  4. Configure applications to send telemetry to OpenTelemetry Collector:"
+    log_info "     • OTLP: otel-collector-gateway.observability.svc.cluster.local:4317"
+    log_info "     • Jaeger: otel-collector-agent.<node>:14268"
+    log_info "     • Zipkin: otel-collector-agent.<node>:9411"
 }
 
 # Parse command line arguments

@@ -1,0 +1,291 @@
+# OPA Gatekeeper Constraint Template for Resource Limits
+apiVersion: templates.gatekeeper.sh/v1beta1
+kind: ConstraintTemplate
+metadata:
+  name: requireresourcelimits
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    policy.kubernetes.io/type: security
+spec:
+  crd:
+    spec:
+      names:
+        kind: RequireResourceLimits
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            exemptNamespaces:
+              type: array
+              items:
+                type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package requireresourcelimits
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          not container.resources.limits.memory
+          msg := sprintf("Container '%v' must have memory limits", [container.name])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          not container.resources.limits.cpu
+          msg := sprintf("Container '%v' must have CPU limits", [container.name])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          not container.resources.requests.memory
+          msg := sprintf("Container '%v' must have memory requests", [container.name])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          not container.resources.requests.cpu
+          msg := sprintf("Container '%v' must have CPU requests", [container.name])
+        }
+---
+# Constraint to enforce resource limits on observability pods
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: RequireResourceLimits
+metadata:
+  name: observability-resource-limits
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+spec:
+  match:
+    kinds:
+      - apiGroups: ["apps"]
+        kinds: ["Deployment", "DaemonSet", "StatefulSet"]
+      - apiGroups: [""]
+        kinds: ["Pod"]
+    namespaces: ["observability"]
+---
+# Constraint Template for Security Context
+apiVersion: templates.gatekeeper.sh/v1beta1
+kind: ConstraintTemplate
+metadata:
+  name: requiresecuritycontext
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    policy.kubernetes.io/type: security
+spec:
+  crd:
+    spec:
+      names:
+        kind: RequireSecurityContext
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            exemptImages:
+              type: array
+              items:
+                type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package requiresecuritycontext
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          not container.securityContext.runAsNonRoot
+          not is_exempt_image(container.image)
+          msg := sprintf("Container '%v' must run as non-root", [container.name])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          not container.securityContext.readOnlyRootFilesystem
+          not is_exempt_image(container.image)
+          msg := sprintf("Container '%v' must have read-only root filesystem", [container.name])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          container.securityContext.allowPrivilegeEscalation
+          msg := sprintf("Container '%v' must not allow privilege escalation", [container.name])
+        }
+
+        is_exempt_image(image) {
+          exempt_image := input.parameters.exemptImages[_]
+          startswith(image, exempt_image)
+        }
+---
+# Constraint to enforce security contexts (with exemptions for system containers)
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: RequireSecurityContext
+metadata:
+  name: observability-security-context
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+spec:
+  match:
+    kinds:
+      - apiGroups: ["apps"]
+        kinds: ["Deployment", "DaemonSet", "StatefulSet"]
+    namespaces: ["observability"]
+  parameters:
+    exemptImages:
+      - "prom/node-exporter" # Node exporter needs root access
+---
+# Constraint Template for Required Labels
+apiVersion: templates.gatekeeper.sh/v1beta1
+kind: ConstraintTemplate
+metadata:
+  name: requirelabels
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    policy.kubernetes.io/type: governance
+spec:
+  crd:
+    spec:
+      names:
+        kind: RequireLabels
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            requiredLabels:
+              type: array
+              items:
+                type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package requirelabels
+
+        violation[{"msg": msg}] {
+          required_label := input.parameters.requiredLabels[_]
+          not input.review.object.metadata.labels[required_label]
+          msg := sprintf("Missing required label: %v", [required_label])
+        }
+---
+# Constraint to enforce required labels on observability resources
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: RequireLabels
+metadata:
+  name: observability-required-labels
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+spec:
+  match:
+    kinds:
+      - apiGroups: ["apps"]
+        kinds: ["Deployment", "DaemonSet", "StatefulSet"]
+      - apiGroups: [""]
+        kinds: ["Service", "ConfigMap"]
+    namespaces: ["observability"]
+  parameters:
+    requiredLabels:
+      - "app.kubernetes.io/name"
+      - "app.kubernetes.io/part-of"
+---
+# Constraint Template for Image Policy
+apiVersion: templates.gatekeeper.sh/v1beta1
+kind: ConstraintTemplate
+metadata:
+  name: allowedimageregistries
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    policy.kubernetes.io/type: security
+spec:
+  crd:
+    spec:
+      names:
+        kind: AllowedImageRegistries
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            allowedRegistries:
+              type: array
+              items:
+                type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package allowedimageregistries
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          not image_from_allowed_registry(container.image)
+          msg := sprintf("Image '%v' is not from an allowed registry", [container.image])
+        }
+
+        image_from_allowed_registry(image) {
+          allowed_registry := input.parameters.allowedRegistries[_]
+          startswith(image, allowed_registry)
+        }
+---
+# Constraint to enforce allowed image registries
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: AllowedImageRegistries
+metadata:
+  name: observability-image-registries
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+spec:
+  match:
+    kinds:
+      - apiGroups: ["apps"]
+        kinds: ["Deployment", "DaemonSet", "StatefulSet"]
+    namespaces: ["observability"]
+  parameters:
+    allowedRegistries:
+      - "docker.io/"
+      - "quay.io/"
+      - "gcr.io/"
+      - "ghcr.io/"
+      - "registry.k8s.io/"
+      - "otel/"
+      - "prom/"
+      - "grafana/"
+---
+# Constraint Template for Network Policy Requirements
+apiVersion: templates.gatekeeper.sh/v1beta1
+kind: ConstraintTemplate
+metadata:
+  name: requirenetworkpolicy
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    policy.kubernetes.io/type: security
+spec:
+  crd:
+    spec:
+      names:
+        kind: RequireNetworkPolicy
+      validation:
+        openAPIV3Schema:
+          type: object
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package requirenetworkpolicy
+
+        violation[{"msg": msg}] {
+          input.review.kind.kind == "Namespace"
+          input.review.operation == "CREATE"
+          not has_network_policy_label
+          msg := "Namespaces must have network policy enforcement enabled"
+        }
+
+        has_network_policy_label {
+          input.review.object.metadata.labels["network-policy.kubernetes.io/enforce"] == "true"
+        }
+---
+# Constraint to require network policy enforcement on namespaces
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: RequireNetworkPolicy
+metadata:
+  name: require-network-policy
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+spec:
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Namespace"]
