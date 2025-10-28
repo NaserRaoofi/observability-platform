@@ -17,21 +17,21 @@ environments:
       - environments/prod/values.yaml
 
 releases:
-  # OpenTelemetry Collector
-  - name: otel-collector
+  # OpenTelemetry Collector - Agent (DaemonSet)
+  - name: otel-collector-agent
     namespace: observability
     chart: open-telemetry/opentelemetry-collector
-    version: 0.74.0
+    version: 0.81.0
     values:
       - k8s/base/otel-collector/values.yaml
 
-  # Prometheus Agent
-  - name: prometheus-agent
+  # OpenTelemetry Collector - Gateway (Deployment)
+  - name: otel-collector-gateway
     namespace: observability
-    chart: prometheus-community/prometheus
-    version: 25.8.0
+    chart: open-telemetry/opentelemetry-collector
+    version: 0.81.0
     values:
-      - k8s/base/prometheus-agent/values.yaml
+      - k8s/base/otel-collector/values-gateway.yaml
 
   # Grafana
   - name: grafana
@@ -100,14 +100,6 @@ releases:
     version: 6.6.4
     values:
       - k8s/base/loki/values.yaml
-
-  # Promtail - Log Collection Agent
-  - name: promtail
-    namespace: observability
-    chart: grafana/promtail
-    version: 6.15.5
-    values:
-      - k8s/base/promtail/values.yaml
 
   # Sloth - SLI/SLO Monitoring
   - name: sloth

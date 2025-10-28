@@ -1,0 +1,546 @@
+# OpenTelemetry Collector Agent Configuration
+# DaemonSet mode for node-level telemetry collection
+
+# Global settings
+global:
+  clusterName: "observability-cluster"
+
+# OpenTelemetry Collector mode
+mode: daemonset
+
+# Image configuration
+image:
+  repository: otel/opentelemetry-collector-contrib
+  tag: "0.88.0"
+  pullPolicy: IfNotPresent
+
+# Command to run
+command:
+  name: otelcol-contrib
+  extraArgs: []
+
+# Service account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# Cluster role for Kubernetes API access
+clusterRole:
+  create: true
+  rules:
+    # Permissions for Prometheus service discovery
+    - apiGroups: [""]
+      resources: ["nodes", "nodes/proxy", "services", "endpoints", "pods"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: ["extensions", "networking.k8s.io"]
+      resources: ["ingresses"]
+      verbs: ["get", "list", "watch"]
+    # Permissions for kubeletstats receiver
+    - apiGroups: [""]
+      resources: ["nodes/stats", "nodes/metrics"]
+      verbs: ["get"]
+    # Non-resource URLs for kubeletstats
+    - nonResourceURLs: ["/metrics", "/stats/*"]
+      verbs: ["get"]
+
+# OpenTelemetry Collector configuration
+config:
+  # Receivers - how to get data into the collector
+  receivers:
+    # OTLP receiver for applications sending telemetry
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+    # Jaeger receiver for legacy Jaeger traces
+    jaeger:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:14250
+        thrift_http:
+          endpoint: 0.0.0.0:14268
+        thrift_binary:
+          endpoint: 0.0.0.0:6832
+        thrift_compact:
+          endpoint: 0.0.0.0:6831
+
+    # Zipkin receiver
+    zipkin:
+      endpoint: 0.0.0.0:9411
+
+    # Prometheus receiver for scraping metrics
+    prometheus:
+      config:
+        scrape_configs:
+          # OTel Collector self-monitoring
+          - job_name: "otel-collector"
+            static_configs:
+              - targets: ["localhost:8888"]
+            scrape_interval: 30s
+
+          # Node Exporter
+          - job_name: "node-exporter"
+            kubernetes_sd_configs:
+              - role: endpoints
+                namespaces:
+                  names: ["observability"]
+            relabel_configs:
+              - source_labels: [__meta_kubernetes_service_name]
+                action: keep
+                regex: prometheus-node-exporter
+            scrape_interval: 30s
+
+          # Kube State Metrics
+          - job_name: "kube-state-metrics"
+            kubernetes_sd_configs:
+              - role: endpoints
+                namespaces:
+                  names: ["observability"]
+            relabel_configs:
+              - source_labels: [__meta_kubernetes_service_name]
+                action: keep
+                regex: kube-state-metrics
+            scrape_interval: 30s
+
+          # Blackbox Exporter
+          - job_name: "blackbox-exporter"
+            kubernetes_sd_configs:
+              - role: endpoints
+                namespaces:
+                  names: ["observability"]
+            relabel_configs:
+              - source_labels: [__meta_kubernetes_service_name]
+                action: keep
+                regex: prometheus-blackbox-exporter
+            scrape_interval: 30s
+
+          # NGINX Exporter
+          - job_name: "nginx-exporter"
+            kubernetes_sd_configs:
+              - role: endpoints
+                namespaces:
+                  names: ["observability"]
+            relabel_configs:
+              - source_labels: [__meta_kubernetes_service_name]
+                action: keep
+                regex: prometheus-nginx-exporter
+            scrape_interval: 30s
+
+          # Redis Exporter
+          - job_name: "redis-exporter"
+            kubernetes_sd_configs:
+              - role: endpoints
+                namespaces:
+                  names: ["observability"]
+            relabel_configs:
+              - source_labels: [__meta_kubernetes_service_name]
+                action: keep
+                regex: prometheus-redis-exporter
+            scrape_interval: 30s
+
+          # CloudWatch Exporter
+          - job_name: "cloudwatch-exporter"
+            kubernetes_sd_configs:
+              - role: endpoints
+                namespaces:
+                  names: ["observability"]
+            relabel_configs:
+              - source_labels: [__meta_kubernetes_service_name]
+                action: keep
+                regex: prometheus-cloudwatch-exporter
+            scrape_interval: 60s # CloudWatch has higher latency
+
+          # Mimir metrics
+          - job_name: "mimir"
+            kubernetes_sd_configs:
+              - role: endpoints
+                namespaces:
+                  names: ["observability"]
+            relabel_configs:
+              - source_labels: [__meta_kubernetes_service_name]
+                action: keep
+                regex: mimir-.*
+              - source_labels: [__meta_kubernetes_endpoint_port_name]
+                action: keep
+                regex: http-metrics
+            scrape_interval: 30s
+
+          # Loki metrics
+          - job_name: "loki"
+            kubernetes_sd_configs:
+              - role: endpoints
+                namespaces:
+                  names: ["observability"]
+            relabel_configs:
+              - source_labels: [__meta_kubernetes_service_name]
+                action: keep
+                regex: loki.*
+              - source_labels: [__meta_kubernetes_endpoint_port_name]
+                action: keep
+                regex: http-metrics
+            scrape_interval: 30s
+
+          # Tempo metrics
+          - job_name: "tempo"
+            kubernetes_sd_configs:
+              - role: endpoints
+                namespaces:
+                  names: ["observability"]
+            relabel_configs:
+              - source_labels: [__meta_kubernetes_service_name]
+                action: keep
+                regex: tempo.*
+              - source_labels: [__meta_kubernetes_endpoint_port_name]
+                action: keep
+                regex: http-metrics
+            scrape_interval: 30s
+
+    # Kubeletstats receiver for container/pod metrics
+    kubeletstats:
+      collection_interval: 20s
+      auth_type: "serviceAccount"
+      endpoint: "https://${env:K8S_NODE_NAME}:10250"
+      insecure_skip_verify: true
+      metric_groups:
+        - container
+        - pod
+        - node
+
+    # Filelog receiver for Kubernetes logs
+    filelog:
+      include:
+        - /var/log/pods/*/*/*.log
+      exclude:
+        # Exclude otel-collector logs to prevent loops
+        - /var/log/pods/observability_otel*/*.log
+      start_at: beginning
+      include_file_path: true
+      include_file_name: false
+      operators:
+        # Parse Kubernetes log format
+        - type: json_parser
+          id: parser-docker
+          output: extract_metadata_from_filepath
+          timestamp:
+            parse_from: attributes.time
+            layout: "%Y-%m-%dT%H:%M:%S.%LZ"
+        - type: regex_parser
+          id: extract_metadata_from_filepath
+          regex: '^.*\/(?P<namespace>[^_]+)_(?P<pod_name>[^_]+)_(?P<uid>[a-f0-9\-]{36})\/(?P<container_name>[^\._]+)\/(?P<restart_count>\d+)\.log$'
+          parse_from: attributes["log.file.path"]
+        - type: move
+          from: attributes.log
+          to: body
+        - type: move
+          from: attributes.stream
+          to: attributes["log.iostream"]
+        - type: move
+          from: attributes.time
+          to: timestamp
+
+    # Host metrics receiver
+    hostmetrics:
+      collection_interval: 30s
+      scrapers:
+        cpu:
+          metrics:
+            system.cpu.utilization:
+              enabled: true
+        memory:
+          metrics:
+            system.memory.utilization:
+              enabled: true
+        load: {}
+        disk: {}
+        filesystem:
+          exclude_mount_points:
+            mount_points:
+              [
+                "/dev/*",
+                "/proc/*",
+                "/sys/*",
+                "/var/lib/docker/*",
+                "/var/lib/containerd/*",
+                "/snap/*",
+              ]
+            match_type: regexp
+        network: {}
+
+  # Processors - how to transform/enrich the data
+  processors:
+    # Batch processor for efficiency
+    batch:
+      timeout: 1s
+      send_batch_size: 1024
+      send_batch_max_size: 2048
+
+    # Memory limiter to prevent OOM
+    memory_limiter:
+      limit_mib: 512
+      spike_limit_mib: 128
+
+    # Resource processor to add metadata
+    resource:
+      attributes:
+        - key: cluster.name
+          value: "observability-cluster"
+          action: upsert
+        - key: deployment.environment
+          value: "dev"
+          action: upsert
+
+    # K8s attributes processor for Kubernetes metadata
+    k8sattributes:
+      auth_type: "serviceAccount"
+      passthrough: false
+      filter:
+        node_from_env_var: K8S_NODE_NAME
+      extract:
+        metadata:
+          - k8s.pod.name
+          - k8s.pod.uid
+          - k8s.deployment.name
+          - k8s.namespace.name
+          - k8s.node.name
+          - k8s.pod.start_time
+        labels:
+          - tag_name: app.kubernetes.io/name
+            key: app.kubernetes.io/name
+            from: pod
+          - tag_name: app.kubernetes.io/version
+            key: app.kubernetes.io/version
+            from: pod
+
+    # Resource detection for cloud metadata
+    resourcedetection:
+      detectors: [env, system, eks, ec2]
+      timeout: 5s
+      override: false
+
+    # Transform processor for data manipulation
+    transform:
+      metric_statements:
+        - context: metric
+          statements:
+            # Normalize metric names
+            - set(name, "system_cpu_utilization") where name == "system.cpu.utilization"
+            - set(name, "system_memory_utilization") where name == "system.memory.utilization"
+
+  # Exporters - where to send the data
+  exporters:
+    # OTLP exporter for traces to Tempo
+    otlp/tempo:
+      endpoint: tempo-gateway.observability.svc.cluster.local:4317
+      tls:
+        insecure: true
+
+    # Prometheus remote write for metrics to Mimir
+    prometheusremotewrite/mimir:
+      endpoint: http://mimir-gateway.observability.svc.cluster.local:8080/api/v1/push
+      tls:
+        insecure: true
+      resource_to_telemetry_conversion:
+        enabled: true
+
+    # Loki exporter for logs
+    loki:
+      endpoint: http://loki-gateway.observability.svc.cluster.local:3100/loki/api/v1/push
+      tenant_id: ""
+      labels:
+        attributes:
+          k8s.pod.name: "pod_name"
+          k8s.namespace.name: "namespace"
+          k8s.container.name: "container"
+        resource:
+          k8s.pod.name: "pod_name"
+          k8s.namespace.name: "namespace"
+
+    # Debug exporter for troubleshooting
+    debug:
+      verbosity: detailed
+
+  # Extensions for additional functionality
+  extensions:
+    # Health check extension
+    health_check:
+      endpoint: 0.0.0.0:13133
+
+    # pprof extension for profiling
+    pprof:
+      endpoint: 0.0.0.0:1777
+
+    # zpages extension for internal metrics
+    zpages:
+      endpoint: 0.0.0.0:55679
+
+  # Service configuration - defines the telemetry pipeline
+  service:
+    extensions: [health_check, pprof, zpages]
+    pipelines:
+      # Traces pipeline
+      traces:
+        receivers: [otlp, jaeger, zipkin]
+        processors:
+          [memory_limiter, k8sattributes, resource, resourcedetection, batch]
+        exporters: [otlp/tempo]
+
+      # Metrics pipeline
+      metrics:
+        receivers: [otlp, prometheus, kubeletstats, hostmetrics]
+        processors:
+          [
+            memory_limiter,
+            k8sattributes,
+            resource,
+            resourcedetection,
+            transform,
+            batch,
+          ]
+        exporters: [prometheusremotewrite/mimir]
+
+      # Logs pipeline
+      logs:
+        receivers: [otlp, filelog]
+        processors:
+          [memory_limiter, k8sattributes, resource, resourcedetection, batch]
+        exporters: [loki]
+
+# Resource configuration
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 200m
+    memory: 256Mi
+
+# Ports configuration
+ports:
+  # OTLP receivers
+  otlp:
+    enabled: true
+    containerPort: 4317
+    servicePort: 4317
+    hostPort: 4317
+    protocol: TCP
+  otlp-http:
+    enabled: true
+    containerPort: 4318
+    servicePort: 4318
+    hostPort: 4318
+    protocol: TCP
+
+  # Jaeger receivers
+  jaeger-grpc:
+    enabled: true
+    containerPort: 14250
+    servicePort: 14250
+    protocol: TCP
+  jaeger-thrift-http:
+    enabled: true
+    containerPort: 14268
+    servicePort: 14268
+    protocol: TCP
+  jaeger-thrift-binary:
+    enabled: true
+    containerPort: 6832
+    servicePort: 6832
+    hostPort: 6832
+    protocol: UDP
+  jaeger-thrift-compact:
+    enabled: true
+    containerPort: 6831
+    servicePort: 6831
+    hostPort: 6831
+    protocol: UDP
+
+  # Zipkin receiver
+  zipkin:
+    enabled: true
+    containerPort: 9411
+    servicePort: 9411
+    protocol: TCP
+
+  # Management ports
+  metrics:
+    enabled: true
+    containerPort: 8888
+    servicePort: 8888
+    protocol: TCP
+
+# Volume mounts for log collection
+extraVolumes:
+  - name: varlogpods
+    hostPath:
+      path: /var/log/pods
+  - name: varlibdockercontainers
+    hostPath:
+      path: /var/lib/docker/containers
+
+extraVolumeMounts:
+  - name: varlogpods
+    mountPath: /var/log/pods
+    readOnly: true
+  - name: varlibdockercontainers
+    mountPath: /var/lib/docker/containers
+    readOnly: true
+
+# Environment variables
+extraEnvs:
+  - name: K8S_NODE_NAME
+    valueFrom:
+      fieldRef:
+        fieldPath: spec.nodeName
+
+# Security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+
+# Pod security context
+podSecurityContext:
+  fsGroup: 10001
+
+# Service monitor for Prometheus
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+
+# Node selector and tolerations
+nodeSelector: {}
+tolerations:
+  - operator: Exists
+    effect: NoSchedule
+
+# Affinity
+affinity: {}
+
+# Pod disruption budget
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: "30%"
+
+# Annotations
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8888"
+  prometheus.io/path: "/metrics"
+
+# Labels
+podLabels:
+  app.kubernetes.io/component: otel-collector
+  app.kubernetes.io/part-of: observability-stack
+
+# Priority class
+priorityClassName: ""
+
+# Image pull secrets
+imagePullSecrets: []

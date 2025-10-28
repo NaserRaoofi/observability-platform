@@ -1,0 +1,415 @@
+# RBAC for OpenTelemetry Collector Agent
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-collector-agent
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: otel-collector
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: otel-collector-agent
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: otel-collector
+rules:
+  # Permissions for Prometheus service discovery
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/proxy", "services", "endpoints", "pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["extensions", "networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+  # Permissions for kubeletstats receiver
+  - apiGroups: [""]
+    resources: ["nodes/stats", "nodes/metrics"]
+    verbs: ["get"]
+  # Non-resource URLs for kubeletstats
+  - nonResourceURLs: ["/metrics", "/stats/*"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otel-collector-agent
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: otel-collector
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: otel-collector-agent
+subjects:
+  - kind: ServiceAccount
+    name: otel-collector-agent
+    namespace: observability
+---
+# RBAC for OpenTelemetry Collector Gateway
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-collector-gateway
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: otel-collector
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: otel-collector-gateway
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: otel-collector
+rules:
+  # Minimal permissions for gateway (no K8s API access needed)
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: otel-collector-gateway
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: otel-collector
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: otel-collector-gateway
+subjects:
+  - kind: ServiceAccount
+    name: otel-collector-gateway
+    namespace: observability
+---
+# RBAC for Node Exporter
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: node-exporter
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: node-exporter
+---
+# Node exporter needs no special permissions (uses hostPath)
+---
+# RBAC for Kube State Metrics
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kube-state-metrics
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: kube-state-metrics
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kube-state-metrics
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: kube-state-metrics
+rules:
+  # Full read access to all K8s resources for metrics generation
+  - apiGroups: [""]
+    resources:
+      - configmaps
+      - secrets
+      - nodes
+      - pods
+      - services
+      - resourcequotas
+      - replicationcontrollers
+      - limitranges
+      - persistentvolumeclaims
+      - persistentvolumes
+      - namespaces
+      - endpoints
+    verbs: ["list", "watch"]
+  - apiGroups: ["apps"]
+    resources:
+      - statefulsets
+      - daemonsets
+      - deployments
+      - replicasets
+    verbs: ["list", "watch"]
+  - apiGroups: ["batch"]
+    resources:
+      - cronjobs
+      - jobs
+    verbs: ["list", "watch"]
+  - apiGroups: ["autoscaling"]
+    resources:
+      - horizontalpodautoscalers
+    verbs: ["list", "watch"]
+  - apiGroups: ["authentication.k8s.io"]
+    resources:
+      - tokenreviews
+    verbs: ["create"]
+  - apiGroups: ["authorization.k8s.io"]
+    resources:
+      - subjectaccessreviews
+    verbs: ["create"]
+  - apiGroups: ["policy"]
+    resources:
+      - poddisruptionbudgets
+    verbs: ["list", "watch"]
+  - apiGroups: ["certificates.k8s.io"]
+    resources:
+      - certificatesigningrequests
+    verbs: ["list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources:
+      - storageclasses
+      - volumeattachments
+    verbs: ["list", "watch"]
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources:
+      - mutatingwebhookconfigurations
+      - validatingwebhookconfigurations
+    verbs: ["list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - networkpolicies
+      - ingresses
+    verbs: ["list", "watch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources:
+      - leases
+    verbs: ["list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kube-state-metrics
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: kube-state-metrics
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kube-state-metrics
+subjects:
+  - kind: ServiceAccount
+    name: kube-state-metrics
+    namespace: observability
+---
+# RBAC for Blackbox Exporter
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: blackbox-exporter
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: blackbox-exporter
+---
+# Blackbox exporter needs no special K8s permissions
+---
+# RBAC for Sloth (SLI/SLO operator)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sloth
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: sloth
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: sloth
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: sloth
+rules:
+  # Permissions to manage SLO CRDs
+  - apiGroups: ["sloth.slok.dev"]
+    resources: ["prometheusservicelevels"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Permissions to create PrometheusRules
+  - apiGroups: ["monitoring.coreos.com"]
+    resources: ["prometheusrules"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Permissions to read configmaps for configuration
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  # Leader election permissions
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Event recording
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: sloth
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: sloth
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: sloth
+subjects:
+  - kind: ServiceAccount
+    name: sloth
+    namespace: observability
+---
+# RBAC for Grafana
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grafana
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: grafana
+---
+# Grafana typically needs no K8s API access (uses data sources directly)
+---
+# RBAC for Mimir
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mimir
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: mimir
+---
+# Mimir needs no K8s API access (uses S3/DynamoDB directly)
+---
+# RBAC for Loki
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: loki
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: loki
+---
+# Loki needs no K8s API access (uses S3 directly)
+---
+# RBAC for Tempo
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tempo
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: tempo
+---
+# Tempo needs no K8s API access (uses S3 directly)
+---
+# Pod Security Policy bindings
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: psp-observability-restricted
+  namespace: observability
+rules:
+  - apiGroups: ["policy"]
+    resources: ["podsecuritypolicies"]
+    verbs: ["use"]
+    resourceNames: ["observability-restricted"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: psp-observability-restricted
+  namespace: observability
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: psp-observability-restricted
+subjects:
+  # Bind to service accounts that use the restricted PSP
+  - kind: ServiceAccount
+    name: grafana
+    namespace: observability
+  - kind: ServiceAccount
+    name: mimir
+    namespace: observability
+  - kind: ServiceAccount
+    name: loki
+    namespace: observability
+  - kind: ServiceAccount
+    name: tempo
+    namespace: observability
+  - kind: ServiceAccount
+    name: sloth
+    namespace: observability
+  - kind: ServiceAccount
+    name: blackbox-exporter
+    namespace: observability
+  - kind: ServiceAccount
+    name: otel-collector-gateway
+    namespace: observability
+---
+# PSP binding for OTel Collector Agent (needs hostPath)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: psp-otel-collector-agent
+  namespace: observability
+rules:
+  - apiGroups: ["policy"]
+    resources: ["podsecuritypolicies"]
+    verbs: ["use"]
+    resourceNames: ["otel-collector-agent"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: psp-otel-collector-agent
+  namespace: observability
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: psp-otel-collector-agent
+subjects:
+  - kind: ServiceAccount
+    name: otel-collector-agent
+    namespace: observability
+---
+# PSP binding for Node Exporter (needs host access)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: psp-node-exporter
+  namespace: observability
+rules:
+  - apiGroups: ["policy"]
+    resources: ["podsecuritypolicies"]
+    verbs: ["use"]
+    resourceNames: ["node-exporter"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: psp-node-exporter
+  namespace: observability
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: psp-node-exporter
+subjects:
+  - kind: ServiceAccount
+    name: node-exporter
+    namespace: observability
