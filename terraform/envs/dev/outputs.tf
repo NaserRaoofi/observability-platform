@@ -277,3 +277,34 @@ output "helm_values_loki" {
     }
   }
 }
+
+# ==========================================
+# Grafana Module Outputs
+# ==========================================
+
+output "grafana_outputs" {
+  description = "Grafana module outputs for development"
+  value = {
+    dashboard_uids     = module.observability_grafana.dashboard_uids
+    dashboard_urls     = module.observability_grafana.dashboard_urls
+    folder_uid         = module.observability_grafana.folder_uid
+    data_source_config = module.observability_grafana.data_source_config
+    module_config      = module.observability_grafana.module_config
+  }
+}
+
+# Individual Grafana outputs for convenience
+output "grafana_dashboard_uids" {
+  description = "UIDs of created Grafana dashboards"
+  value       = module.observability_grafana.dashboard_uids
+}
+
+output "grafana_folder_uid" {
+  description = "UID of the Grafana folder containing observability dashboards"
+  value       = module.observability_grafana.folder_uid
+}
+
+output "grafana_workspace_endpoint" {
+  description = "Grafana workspace endpoint (if managed workspace is created)"
+  value       = module.observability_grafana.workspace_endpoint
+}

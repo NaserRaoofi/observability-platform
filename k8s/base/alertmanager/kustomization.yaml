@@ -1,0 +1,57 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: alertmanager
+  annotations:
+    config.kubernetes.io/local-config: "true"
+
+namespace: observability
+
+resources:
+  - alertmanager-secrets.yaml
+  - notification-templates.yaml
+
+helmCharts:
+  - name: alertmanager
+    repo: https://prometheus-community.github.io/helm-charts
+    version: 1.9.0
+    releaseName: alertmanager
+    namespace: observability
+    valuesFile: values.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/name: alertmanager
+      app.kubernetes.io/component: alertmanager
+      app.kubernetes.io/part-of: observability-stack
+      app.kubernetes.io/managed-by: kustomize
+
+replicas:
+  - name: alertmanager
+    count: 3
+
+patches:
+  # Enable high availability clustering
+  - target:
+      kind: StatefulSet
+      name: alertmanager
+    patch: |
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --cluster.listen-address=0.0.0.0:9094
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --cluster.peer=alertmanager-0.alertmanager.observability.svc.cluster.local:9094
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --cluster.peer=alertmanager-1.alertmanager.observability.svc.cluster.local:9094
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --cluster.peer=alertmanager-2.alertmanager.observability.svc.cluster.local:9094
+
+commonAnnotations:
+  app.kubernetes.io/version: "v0.26.0"
+  config.k8s.io/origin: |
+    configuredIn: k8s/base/alertmanager/kustomization.yaml
+    configuredBy: kustomize
