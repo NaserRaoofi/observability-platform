@@ -1,0 +1,473 @@
+# Grafana Configuration for Enterprise Observability Platform
+# Integrates with Mimir (metrics), Loki (logs), and Tempo (traces)
+
+# Global settings
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+
+# Image configuration
+image:
+  registry: docker.io
+  repository: grafana/grafana
+  tag: "10.2.0"
+  pullPolicy: IfNotPresent
+
+# Service account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: grafana
+
+# Security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  runAsGroup: 65534
+  fsGroup: 65534
+
+# Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  runAsGroup: 65534
+  fsGroup: 65534
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container security context
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65534
+  runAsGroup: 65534
+
+# Resources
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+# Persistence
+persistence:
+  type: pvc
+  enabled: true
+  size: 10Gi
+  storageClassName: gp3
+  accessModes:
+    - ReadWriteOnce
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+  annotations: {}
+  labels: {}
+
+# Ingress configuration (optional)
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: grafana.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Environment variables
+env:
+  GF_ANALYTICS_REPORTING_ENABLED: "false"
+  GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+  GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+  GF_SECURITY_ANGULAR_SUPPORT_ENABLED: "false"
+  GF_DATE_FORMATS_USE_BROWSER_LOCALE: "true"
+  GF_EXPLORE_ENABLED: "true"
+  GF_LOG_LEVEL: "info"
+  GF_UNIFIED_ALERTING_ENABLED: "true"
+  GF_ALERTING_ENABLED: "false" # Disable legacy alerting
+
+# Extra environment variables from secrets/configmaps
+envFromSecret: ""
+envFromConfigMaps: []
+
+# Admin credentials
+admin:
+  existingSecret: ""
+  userKey: admin-user
+  passwordKey: admin-password
+  user: admin
+  password: "admin123!" # Change this in production
+
+# Grafana configuration
+grafana.ini:
+  paths:
+    data: /var/lib/grafana/
+    logs: /var/log/grafana
+    plugins: /var/lib/grafana/plugins
+    provisioning: /etc/grafana/provisioning
+
+  server:
+    protocol: http
+    http_port: 3000
+    domain: localhost
+    enforce_domain: false
+    root_url: "%(protocol)s://%(domain)s:%(http_port)s/"
+    serve_from_sub_path: false
+
+  database:
+    type: sqlite3
+    path: grafana.db
+    cache_mode: private
+
+  session:
+    provider: file
+    provider_config: sessions
+
+  security:
+    admin_user: admin
+    admin_password: admin123!
+    secret_key: SW2YcwTIb9zpOOhoPsMm
+    login_remember_days: 7
+    cookie_username: grafana_user
+    cookie_remember_name: grafana_remember
+    disable_gravatar: true
+
+  users:
+    allow_sign_up: false
+    allow_org_create: false
+    auto_assign_org: true
+    auto_assign_org_id: 1
+    auto_assign_org_role: Viewer
+    default_theme: dark
+
+  auth:
+    disable_login_form: false
+    disable_signout_menu: false
+
+  auth.anonymous:
+    enabled: false
+
+  log:
+    mode: console
+    level: info
+
+  log.console:
+    level: info
+    format: console
+
+  alerting:
+    enabled: false
+
+  unified_alerting:
+    enabled: true
+    ha_peers: ""
+    ha_listen_address: "${POD_IP}:9094"
+    ha_advertise_address: ""
+
+  feature_toggles:
+    enable: "tempoSearch,tempoBackendSearch,traceqlEditor"
+
+# Data source provisioning
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      # Mimir for metrics
+      - name: Mimir
+        type: prometheus
+        uid: mimir
+        access: proxy
+        url: http://mimir-gateway.observability.svc.cluster.local:8080/prometheus
+        isDefault: true
+        jsonData:
+          httpMethod: POST
+          prometheusType: Mimir
+          exemplarTraceIdDestinations:
+            - name: trace_id
+              datasourceUid: tempo
+          customQueryParameters: ""
+        editable: true
+
+      # Loki for logs
+      - name: Loki
+        type: loki
+        uid: loki
+        access: proxy
+        url: http://loki-gateway.observability.svc.cluster.local:3100
+        jsonData:
+          maxLines: 1000
+          derivedFields:
+            - datasourceUid: tempo
+              matcherRegex: "trace_id=(\\w+)"
+              name: TraceID
+              url: "$${__value.raw}"
+        editable: true
+
+      # Tempo for traces
+      - name: Tempo
+        type: tempo
+        uid: tempo
+        access: proxy
+        url: http://tempo-gateway.observability.svc.cluster.local:3200
+        jsonData:
+          httpMethod: GET
+          tracesToLogs:
+            datasourceUid: loki
+            tags: ["job", "instance", "pod", "namespace"]
+            mappedTags: [{ key: "service.name", value: "service" }]
+            mapTagNamesEnabled: false
+            spanStartTimeShift: "1h"
+            spanEndTimeShift: "1h"
+            filterByTraceID: false
+            filterBySpanID: false
+          tracesToMetrics:
+            datasourceUid: mimir
+            tags: [{ key: "service.name", value: "service" }, { key: "job" }]
+            queries:
+              - name: "Sample query"
+                query: "sum(rate(traces_spanmetrics_latency_bucket{$$__tags}[5m]))"
+          serviceMap:
+            datasourceUid: mimir
+          search:
+            hide: false
+          nodeGraph:
+            enabled: true
+        editable: true
+
+      # AlertManager for alerts
+      - name: AlertManager
+        type: alertmanager
+        uid: alertmanager
+        access: proxy
+        url: http://alertmanager.observability.svc.cluster.local:9093
+        jsonData:
+          implementation: prometheus
+          handleGrafanaManagedAlerts: false
+        editable: true
+
+# Dashboard provisioning
+dashboardProviders:
+  dashboardproviders.yaml:
+    apiVersion: 1
+    providers:
+      - name: "observability"
+        orgId: 1
+        folder: "Observability"
+        type: file
+        disableDeletion: false
+        editable: true
+        updateIntervalSeconds: 10
+        allowUiUpdates: true
+        options:
+          path: /var/lib/grafana/dashboards/observability
+
+      - name: "infrastructure"
+        orgId: 1
+        folder: "Infrastructure"
+        type: file
+        disableDeletion: false
+        editable: true
+        updateIntervalSeconds: 10
+        allowUiUpdates: true
+        options:
+          path: /var/lib/grafana/dashboards/infrastructure
+
+      - name: "applications"
+        orgId: 1
+        folder: "Applications"
+        type: file
+        disableDeletion: false
+        editable: true
+        updateIntervalSeconds: 10
+        allowUiUpdates: true
+        options:
+          path: /var/lib/grafana/dashboards/applications
+
+      - name: "slos"
+        orgId: 1
+        folder: "SLOs"
+        type: file
+        disableDeletion: false
+        editable: true
+        updateIntervalSeconds: 10
+        allowUiUpdates: true
+        options:
+          path: /var/lib/grafana/dashboards/slos
+
+# Dashboard ConfigMaps
+dashboardsConfigMaps:
+  observability: "grafana-dashboards-observability"
+  infrastructure: "grafana-dashboards-infrastructure"
+  applications: "grafana-dashboards-applications"
+  slos: "grafana-dashboards-slos"
+
+# Sidecar for dashboard loading
+sidecar:
+  dashboards:
+    enabled: true
+    label: grafana_dashboard
+    labelValue: "1"
+    folder: /tmp/dashboards
+    folderAnnotation: grafana_folder
+    provider:
+      allowUiUpdates: true
+      disableDelete: false
+      foldersFromFilesStructure: true
+  datasources:
+    enabled: false # We use static provisioning
+
+# Plugin installation
+plugins:
+  - grafana-piechart-panel
+  - grafana-clock-panel
+  - grafana-simple-json-datasource
+  - camptocamp-prometheus-alertmanager-datasource
+  - vonage-status-panel
+
+# Extra configmaps
+extraConfigmapMounts: []
+
+# Extra secret mounts
+extraSecretMounts: []
+
+# Extra volumes
+extraVolumes: []
+
+# Extra volume mounts
+extraVolumeMounts: []
+
+# Init containers
+initContainers: []
+
+# Extra containers
+extraContainers: []
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Pod annotations
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "3000"
+  prometheus.io/path: "/metrics"
+
+# Pod labels
+podLabels:
+  app.kubernetes.io/component: grafana
+  app.kubernetes.io/part-of: observability-stack
+
+# Priority class
+priorityClassName: "observability-important"
+
+# Pod disruption budget
+podDisruptionBudget:
+  maxUnavailable: 1
+
+# Liveness probe
+livenessProbe:
+  httpGet:
+    path: /api/health
+    port: http
+  initialDelaySeconds: 60
+  timeoutSeconds: 30
+  failureThreshold: 3
+
+# Readiness probe
+readinessProbe:
+  httpGet:
+    path: /api/ready
+    port: http
+  initialDelaySeconds: 10
+  timeoutSeconds: 30
+  failureThreshold: 3
+
+# Startup probe
+startupProbe:
+  httpGet:
+    path: /api/health
+    port: http
+  initialDelaySeconds: 10
+  timeoutSeconds: 30
+  failureThreshold: 30
+  periodSeconds: 10
+
+# Service monitor for Prometheus
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+  labels:
+    app.kubernetes.io/part-of: observability-stack
+  metricRelabelings: []
+  relabelings: []
+
+# Alerting configuration
+alerting:
+  contactPoints.yaml:
+    apiVersion: 1
+    contactPoints:
+      - orgId: 1
+        name: "default-receiver"
+        receivers:
+          - uid: default
+            type: slack
+            settings:
+              url: "" # Add Slack webhook URL
+              channel: "#alerts"
+              username: "Grafana"
+              title: "{{ range .Alerts }}{{ .Annotations.summary }}{{ end }}"
+              text: >
+                {{ range .Alerts }}
+                {{ if gt (len .Labels) 0 }}*Labels:*{{ range .Labels.SortedPairs }} • {{ .Name }}: `{{ .Value }}`{{ end }}{{ end }}
+                {{ if gt (len .Annotations) 0 }}*Annotations:*{{ range .Annotations.SortedPairs }} • {{ .Name }}: {{ .Value }}{{ end }}{{ end }}
+                {{ end }}
+
+  policies.yaml:
+    apiVersion: 1
+    policies:
+      - orgId: 1
+        receiver: "default-receiver"
+        group_by: ["alertname", "cluster", "service"]
+        group_wait: 10s
+        group_interval: 5m
+        repeat_interval: 12h
+
+# RBAC
+rbac:
+  create: true
+  pspEnabled: true
+  pspUseAppArmor: false
+  namespaced: false
+  extraRoleRules: []
+  extraClusterRoleRules: []
+
+# Test framework
+testFramework:
+  enabled: true
+  image: "bats/bats"
+  tag: "v1.4.1"
+  imagePullPolicy: IfNotPresent
+  securityContext: {}
+
+# Network policy
+networkPolicy:
+  enabled: true
+  ingress: true
+  allowExternal: true
+  explicitNamespacesSelector: {}

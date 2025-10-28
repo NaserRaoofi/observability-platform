@@ -1,0 +1,56 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: observability-base
+  annotations:
+    config.kubernetes.io/local-config: "true"
+
+namespace: observability
+
+resources:
+  # Core observability platform components
+  - otel-collector/
+  - mimir/
+  - loki/
+  - tempo/
+  - grafana/
+
+  # SLO monitoring and alerting
+  - sloth/
+  - alertmanager/
+
+  # Metrics exporters
+  - exporters/
+
+  # Security policies
+  - policy/
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: observability-stack
+      app.kubernetes.io/managed-by: kustomize
+      environment: base
+
+commonAnnotations:
+  app.kubernetes.io/version: "v1.0.0"
+  config.k8s.io/origin: |
+    configuredIn: k8s/base/kustomization.yaml
+    configuredBy: kustomize
+
+# Apply consistent labeling across all components
+commonLabels:
+  observability.platform/stack: "enterprise"
+  observability.platform/version: "v1.0.0"
+
+# Component deployment order
+# 1. Security policies first
+# 2. Storage and data components (Mimir, Loki, Tempo)
+# 3. Collection layer (OTel Collector, exporters)
+# 4. SLO monitoring (Sloth)
+# 5. Alerting (AlertManager)
+# 6. Visualization (Grafana)
+
+patchesStrategicMerge: []
+
+patches: []

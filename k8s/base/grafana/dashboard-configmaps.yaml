@@ -1,0 +1,330 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-observability
+  namespace: observability
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: grafana
+data:
+  opentelemetry-collector.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "OpenTelemetry Collector Overview",
+        "tags": ["otel", "collector", "telemetry"],
+        "style": "dark",
+        "timezone": "browser",
+        "panels": [
+          {
+            "title": "Data Processing Rate",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "sum(rate(otelcol_processor_accepted_spans_total[5m]))",
+                "legendFormat": "Spans/sec"
+              },
+              {
+                "expr": "sum(rate(otelcol_processor_accepted_metric_points_total[5m]))",
+                "legendFormat": "Metrics/sec"
+              },
+              {
+                "expr": "sum(rate(otelcol_processor_accepted_log_records_total[5m]))",
+                "legendFormat": "Logs/sec"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+          },
+          {
+            "title": "Export Success Rate",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "sum(rate(otelcol_exporter_sent_spans_total[5m])) / (sum(rate(otelcol_exporter_sent_spans_total[5m])) + sum(rate(otelcol_exporter_send_failed_spans_total[5m])))",
+                "legendFormat": "Success Rate"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percentunit",
+                "min": 0,
+                "max": 1
+              }
+            },
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+          }
+        ],
+        "time": {
+          "from": "now-1h",
+          "to": "now"
+        },
+        "refresh": "30s"
+      }
+    }
+
+  three-pillars-overview.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "Observability Three Pillars Overview",
+        "tags": ["metrics", "logs", "traces", "overview"],
+        "style": "dark",
+        "timezone": "browser",
+        "panels": [
+          {
+            "title": "Metrics Ingestion Rate",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "sum(rate(prometheus_tsdb_symbol_table_size_bytes[5m]))",
+                "legendFormat": "Mimir Ingestion"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0}
+          },
+          {
+            "title": "Log Ingestion Rate",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "sum(rate(loki_distributor_ingester_appends_total[5m]))",
+                "legendFormat": "Loki Ingestion"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0}
+          },
+          {
+            "title": "Trace Ingestion Rate",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "sum(rate(tempo_ingester_traces_created_total[5m]))",
+                "legendFormat": "Tempo Ingestion"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0}
+          }
+        ],
+        "time": {
+          "from": "now-1h",
+          "to": "now"
+        },
+        "refresh": "30s"
+      }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-infrastructure
+  namespace: observability
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: grafana
+data:
+  kubernetes-cluster.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "Kubernetes Cluster Overview",
+        "tags": ["kubernetes", "cluster", "infrastructure"],
+        "style": "dark",
+        "timezone": "browser",
+        "panels": [
+          {
+            "title": "Cluster CPU Usage",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "sum(rate(container_cpu_usage_seconds_total{container!=\"POD\",container!=\"\"}[5m])) by (node)",
+                "legendFormat": "{{node}}"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+          },
+          {
+            "title": "Cluster Memory Usage",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "sum(container_memory_working_set_bytes{container!=\"POD\",container!=\"\"}) by (node)",
+                "legendFormat": "{{node}}"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+          }
+        ],
+        "time": {
+          "from": "now-1h",
+          "to": "now"
+        },
+        "refresh": "30s"
+      }
+    }
+
+  node-exporter.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "Node Exporter Dashboard",
+        "tags": ["node", "exporter", "system"],
+        "style": "dark",
+        "timezone": "browser",
+        "panels": [
+          {
+            "title": "CPU Usage",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+                "legendFormat": "CPU Usage %"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0}
+          },
+          {
+            "title": "Memory Usage",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100",
+                "legendFormat": "Memory Usage %"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8}
+          }
+        ],
+        "time": {
+          "from": "now-1h",
+          "to": "now"
+        },
+        "refresh": "30s"
+      }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-slos
+  namespace: observability
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: grafana
+data:
+  slo-overview.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "SLO Overview Dashboard",
+        "tags": ["slo", "sli", "error-budget"],
+        "style": "dark",
+        "timezone": "browser",
+        "panels": [
+          {
+            "title": "Error Budget Burn Rate",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "slo:sli_error:ratio_rate5m > 0",
+                "legendFormat": "{{slo_name}}"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0}
+          },
+          {
+            "title": "SLO Compliance",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "slo:period_error_budget_remaining:ratio",
+                "legendFormat": "{{slo_name}}"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percentunit",
+                "min": 0,
+                "max": 1,
+                "thresholds": {
+                  "steps": [
+                    {"color": "red", "value": 0},
+                    {"color": "yellow", "value": 0.2},
+                    {"color": "green", "value": 0.5}
+                  ]
+                }
+              }
+            },
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8}
+          }
+        ],
+        "time": {
+          "from": "now-24h",
+          "to": "now"
+        },
+        "refresh": "1m"
+      }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-applications
+  namespace: observability
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/part-of: observability-stack
+    app.kubernetes.io/component: grafana
+data:
+  red-metrics.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "RED Metrics (Rate, Errors, Duration)",
+        "tags": ["red", "applications", "performance"],
+        "style": "dark",
+        "timezone": "browser",
+        "panels": [
+          {
+            "title": "Request Rate",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "sum(rate(http_requests_total[5m])) by (service)",
+                "legendFormat": "{{service}}"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0}
+          },
+          {
+            "title": "Error Rate",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) by (service)",
+                "legendFormat": "{{service}} errors"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0}
+          },
+          {
+            "title": "Duration (P99)",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (service, le))",
+                "legendFormat": "{{service}} P99"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0}
+          }
+        ],
+        "time": {
+          "from": "now-1h",
+          "to": "now"
+        },
+        "refresh": "30s"
+      }
+    }
