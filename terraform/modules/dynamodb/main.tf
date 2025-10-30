@@ -17,7 +17,7 @@ locals {
 
 # Mimir Index Table - Metrics storage for long-term retention
 module "mimir_index_table" {
-  source = "../../../terraform-aws-dynamodb"
+  source = "github.com/NaserRaoofi/terraform-aws-modules//modules/dynamodb?ref=main"
 
   # Only create if explicitly enabled
   count = var.create_mimir_table ? 1 : 0
@@ -99,7 +99,7 @@ module "mimir_index_table" {
 
 # Optional Loki Index Table - Logs indexing for faster queries
 module "loki_index_table" {
-  source = "../../../terraform-aws-dynamodb"
+  source = "github.com/NaserRaoofi/terraform-aws-modules//modules/dynamodb?ref=main"
 
   # Only create if explicitly enabled via variable
   count = var.create_loki_table ? 1 : 0

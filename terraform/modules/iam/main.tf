@@ -29,7 +29,7 @@ locals {
 
 # IAM Role for Mimir (Metrics storage and querying)
 module "mimir_role" {
-  source = "../../../terraform-aws-iam/modules/iam-role-for-service-accounts"
+  source = "github.com/NaserRaoofi/terraform-aws-modules//modules/iam/modules/iam-role-for-service-accounts?ref=main"
 
   name = "${var.project_name}-mimir-${var.environment}"
 
@@ -52,7 +52,7 @@ module "mimir_role" {
 
 # Custom DynamoDB policy for Mimir
 module "mimir_dynamodb_policy" {
-  source = "../../../terraform-aws-iam/modules/iam-policy"
+  source = "github.com/NaserRaoofi/terraform-aws-modules//modules/iam/iam-policy?ref=main"
 
   name_prefix = "mimir-dynamodb-${var.environment}-"
   description = "DynamoDB access policy for Mimir metrics storage"
@@ -64,7 +64,7 @@ module "mimir_dynamodb_policy" {
 
 # Custom S3 policy for Mimir
 module "mimir_s3_policy" {
-  source = "../../../terraform-aws-iam/modules/iam-policy"
+  source = "github.com/NaserRaoofi/terraform-aws-modules//modules/iam/iam-policy?ref=main"
 
   name_prefix = "mimir-s3-${var.environment}-"
   description = "S3 access policy for Mimir object storage"
@@ -80,7 +80,7 @@ module "mimir_s3_policy" {
 
 # IAM Role for Loki (Logs storage and querying)
 module "loki_role" {
-  source = "../../../terraform-aws-iam/modules/iam-role-for-service-accounts"
+  source = "github.com/NaserRaoofi/terraform-aws-modules//modules/iam/iam-role-for-service-accounts?ref=main"
 
   count = var.create_loki_resources ? 1 : 0
 
@@ -105,7 +105,7 @@ module "loki_role" {
 
 # Custom DynamoDB policy for Loki
 module "loki_dynamodb_policy" {
-  source = "../../../terraform-aws-iam/modules/iam-policy"
+  source = "github.com/NaserRaoofi/terraform-aws-modules//modules/iam/iam-policy?ref=main"
 
   count = var.create_loki_resources ? 1 : 0
 
@@ -119,7 +119,7 @@ module "loki_dynamodb_policy" {
 
 # Custom S3 policy for Loki
 module "loki_s3_policy" {
-  source = "../../../terraform-aws-iam/modules/iam-policy"
+  source = "github.com/NaserRaoofi/terraform-aws-modules//modules/iam/iam-policy?ref=main"
 
   count = var.create_loki_resources ? 1 : 0
 
@@ -137,7 +137,7 @@ module "loki_s3_policy" {
 
 # IAM Role for Grafana (Dashboard and visualization)
 module "grafana_role" {
-  source = "../../../terraform-aws-iam/modules/iam-role-for-service-accounts"
+  source = "github.com/NaserRaoofi/terraform-aws-modules//modules/iam/iam-role-for-service-accounts?ref=main"
 
   count = var.create_grafana_resources ? 1 : 0
 
@@ -162,7 +162,7 @@ module "grafana_role" {
 
 # Read-only policy for Grafana to access Prometheus/Mimir
 module "grafana_prometheus_policy" {
-  source = "../../../terraform-aws-iam/modules/iam-policy"
+  source = "github.com/NaserRaoofi/terraform-aws-modules//modules/iam/iam-policy?ref=main"
 
   count = var.create_grafana_resources ? 1 : 0
 
@@ -176,7 +176,7 @@ module "grafana_prometheus_policy" {
 
 # Read-only policy for Grafana to access observability resources
 module "grafana_observability_policy" {
-  source = "../../../terraform-aws-iam/modules/iam-policy"
+  source = "github.com/NaserRaoofi/terraform-aws-modules//modules/iam/iam-policy?ref=main"
 
   count = var.create_grafana_resources ? 1 : 0
 
@@ -194,7 +194,7 @@ module "grafana_observability_policy" {
 
 # IAM Role for Tempo (Distributed tracing storage)
 module "tempo_role" {
-  source = "../../../terraform-aws-iam/modules/iam-role-for-service-accounts"
+  source = "github.com/NaserRaoofi/terraform-aws-modules//modules/iam/iam-role-for-service-accounts?ref=main"
 
   count = var.create_tempo_resources ? 1 : 0
 
@@ -220,7 +220,7 @@ module "tempo_role" {
 
 # Custom S3 policy for Tempo
 module "tempo_s3_policy" {
-  source = "../../../terraform-aws-iam/modules/iam-policy"
+  source = "github.com/NaserRaoofi/terraform-aws-modules//modules/iam/iam-policy?ref=main"
 
   count = var.create_tempo_resources ? 1 : 0
 
