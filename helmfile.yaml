@@ -33,13 +33,13 @@ releases:
     values:
       - k8s/base/otel-collector/values-gateway.yaml
 
-  # Grafana
-  - name: grafana
+  # Grafana Operator (manages Grafana instances via CRDs)
+  - name: grafana-operator
     namespace: observability
-    chart: grafana/grafana
-    version: 7.0.0
+    chart: grafana/grafana-operator
+    version: 5.4.2
     values:
-      - k8s/base/grafana/values.yaml
+      - k8s/base/grafana/values-operator.yaml
 
   # Exporters
   - name: node-exporter

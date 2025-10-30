@@ -140,6 +140,135 @@ module "observability_iam" {
 }
 ```
 
+### Production Environment Example
+
+```hcl
+# terraform/envs/prod/main.tf
+
+locals {
+  environment = "prod"
+  project     = "observability"
+
+  common_tags = {
+    Environment = local.environment
+    Project     = local.project
+    ManagedBy   = "terraform"
+    Owner       = "platform-team"
+  }
+}
+
+# DynamoDB Module - Tables for Indexing
+module "observability_dynamodb" {
+  source = "../../modules/dynamodb"
+
+  environment  = local.environment
+  project_name = local.project
+
+  # Enable tables for services we're deploying
+  create_mimir_table = true
+  create_loki_table  = true
+
+  # Performance configuration
+  billing_mode = "PAY_PER_REQUEST"  # Cost-effective for variable workloads
+
+  # Security
+  point_in_time_recovery_enabled = true
+
+  tags = local.common_tags
+}
+
+# S3-KMS Module - Storage with Encryption
+module "observability_s3" {
+  source = "../../modules/s3-kms"
+
+  environment  = local.environment
+  project_name = local.project
+
+  # Enable buckets for services we're deploying
+  create_mimir_bucket = true
+  create_loki_bucket  = true
+  create_tempo_bucket = true
+
+  # KMS encryption
+  create_kms_key      = true
+  enable_key_rotation = true
+
+  # Lifecycle management for cost optimization
+  enable_lifecycle_management = true
+  logs_retention_days         = 365   # 1 year for logs
+  traces_retention_days       = 90    # 90 days for traces
+
+  # Performance optimizations
+  enable_transfer_acceleration = true
+  enable_intelligent_tiering   = true
+
+  tags = local.common_tags
+}
+
+# IAM Module - IRSA Roles and Policies
+module "observability_iam" {
+  source = "../../modules/iam"
+
+  environment  = local.environment
+  project_name = local.project
+
+  # EKS cluster configuration
+  eks_oidc_provider_arn = var.eks_oidc_provider_arn
+  monitoring_namespace  = "monitoring"
+
+  # Cross-module resource references
+  mimir_table_arn     = module.observability_dynamodb.mimir_table_arn
+  loki_table_arn      = module.observability_dynamodb.loki_table_arn
+  mimir_s3_bucket_arn = module.observability_s3.mimir_bucket_arn
+  loki_s3_bucket_arn  = module.observability_s3.loki_bucket_arn
+  tempo_s3_bucket_arn = module.observability_s3.tempo_bucket_arn
+
+  # KMS key for encryption/decryption
+  kms_key_arn = module.observability_s3.kms_key_arn
+
+  # Feature flags
+  create_loki_resources    = true
+  create_grafana_resources = true
+  create_tempo_resources   = true
+
+  tags = local.common_tags
+}
+
+# Integration summary for easy reference
+output "observability_stack_summary" {
+  description = "Complete observability stack configuration summary"
+  value = {
+    environment = local.environment
+
+    # Storage layer
+    storage = {
+      mimir_dynamodb_table = module.observability_dynamodb.mimir_table_name
+      mimir_s3_bucket     = module.observability_s3.mimir_bucket_name
+      loki_dynamodb_table = module.observability_dynamodb.loki_table_name
+      loki_s3_bucket      = module.observability_s3.loki_bucket_name
+      tempo_s3_bucket     = module.observability_s3.tempo_bucket_name
+      kms_key_id          = module.observability_s3.kms_key_id
+    }
+
+    # Security layer
+    security = {
+      mimir_service_account_role   = module.observability_iam.mimir_role_arn
+      loki_service_account_role    = module.observability_iam.loki_role_arn
+      grafana_service_account_role = module.observability_iam.grafana_role_arn
+      tempo_service_account_role   = module.observability_iam.tempo_role_arn
+    }
+
+    # Configuration for Kubernetes deployments
+    kubernetes_annotations = {
+      mimir_service_account   = "eks.amazonaws.com/role-arn: ${module.observability_iam.mimir_role_arn}"
+      loki_service_account    = "eks.amazonaws.com/role-arn: ${module.observability_iam.loki_role_arn}"
+      grafana_service_account = "eks.amazonaws.com/role-arn: ${module.observability_iam.grafana_role_arn}"
+      tempo_service_account   = "eks.amazonaws.com/role-arn: ${module.observability_iam.tempo_role_arn}"
+    }
+  }
+}
+```
+
 ### Service-Specific Deployment
 
 ```hcl
@@ -147,8 +276,8 @@ module "observability_iam" {
 module "mimir_only" {
   source = "../../modules/dynamodb"
 
-  create_mimir_tables = true
-  create_loki_tables  = false
+  create_mimir_table = true
+  create_loki_table  = false
 }
 
 module "mimir_storage" {
@@ -174,10 +303,129 @@ module "mimir_storage" {
 ```hcl
 # IAM module references DynamoDB and S3 resources
 module "iam" {
-  mimir_dynamodb_table_arn = module.dynamodb.mimir_table_arn
-  mimir_s3_bucket_arn      = module.s3.mimir_bucket_arn
+  mimir_table_arn     = module.dynamodb.mimir_table_arn
+  mimir_s3_bucket_arn = module.s3.mimir_bucket_arn
   # ... other references
 }
+```
+
+## 🚀 Kubernetes Integration
+
+### Service Account Configuration
+
+```yaml
+# Mimir Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mimir
+  namespace: monitoring
+  annotations:
+    eks.amazonaws.com/role-arn: "${module.observability_iam.mimir_role_arn}"
+automountServiceAccountToken: true
+---
+# Loki Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: loki
+  namespace: monitoring
+  annotations:
+    eks.amazonaws.com/role-arn: "${module.observability_iam.loki_role_arn}"
+automountServiceAccountToken: true
+---
+# Tempo Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tempo
+  namespace: monitoring
+  annotations:
+    eks.amazonaws.com/role-arn: "${module.observability_iam.tempo_role_arn}"
+automountServiceAccountToken: true
+```
+
+### Mimir Helm Configuration
+
+```yaml
+# Use the Terraform outputs in your Helm values
+mimir:
+  storage:
+    backend: s3
+    s3:
+      bucket_name: "observability-prod-mimir"
+      region: "us-west-2"
+
+  indexGateway:
+    storage:
+      type: dynamodb
+      dynamodb:
+        table_name: "observability-prod-mimir"
+        region: "us-west-2"
+
+  serviceAccount:
+    create: false
+    name: mimir
+```
+
+### Loki Helm Configuration
+
+```yaml
+storage_config:
+  aws:
+    bucketnames: "${module.observability_s3.loki_bucket_name}"
+    region: "${data.aws_region.current.name}"
+    sse_encryption: true
+
+serviceAccount:
+  create: false
+  name: loki
+```
+
+## 📋 Deployment Steps
+
+### 1. Initialize Terraform
+
+```bash
+cd terraform/envs/prod
+terraform init
+```
+
+### 2. Plan Deployment
+
+```bash
+terraform plan -var-file="terraform.tfvars"
+```
+
+### 3. Deploy Infrastructure
+
+```bash
+terraform apply -var-file="terraform.tfvars"
+```
+
+### 4. Verify Resources
+
+```bash
+# Check DynamoDB tables
+aws dynamodb list-tables --region us-west-2
+
+# Check S3 buckets
+aws s3 ls | grep observability
+
+# Check IAM roles
+aws iam list-roles --query 'Roles[?contains(RoleName, `observability`)]'
+```
+
+### 5. Deploy Kubernetes Applications
+
+```bash
+# Apply service accounts
+kubectl apply -f k8s/service-accounts.yaml
+
+# Deploy via Helm
+helm upgrade --install mimir grafana/mimir-distributed -f values-mimir.yaml
+helm upgrade --install loki grafana/loki -f values-loki.yaml
+helm upgrade --install tempo grafana/tempo -f values-tempo.yaml
 ```
 
 ## 🏢 Enterprise Features
@@ -287,19 +535,99 @@ terraform validate
 
 _Costs vary significantly based on data volume, retention policies, and access patterns._
 
-## 🆘 Support
+## 🛠️ Troubleshooting
 
 ### Common Issues
 
-1. **IRSA Trust Relationship** - Ensure EKS OIDC provider is correctly configured
-2. **S3 Bucket Naming** - Bucket names must be globally unique
-3. **DynamoDB Capacity** - Monitor for throttling in high-traffic scenarios
+1. **IRSA Trust Relationship Errors**
 
-### Troubleshooting
+   ```bash
+   # Verify OIDC provider exists
+   aws iam list-open-id-connect-providers
 
-- Check AWS CloudTrail for access issues
-- Review IAM policy simulator for permission problems
-- Monitor CloudWatch metrics for performance issues
+   # Check trust policy
+   aws iam get-role --role-name observability-prod-mimir-role
+   ```
+
+2. **S3 Access Denied**
+
+   ```bash
+   # Test bucket access
+   aws s3 ls s3://observability-prod-mimir --region us-west-2
+
+   # Check bucket policy
+   aws s3api get-bucket-policy --bucket observability-prod-mimir
+   ```
+
+3. **DynamoDB Throttling**
+   ```bash
+   # Check table metrics
+   aws cloudwatch get-metric-statistics \
+     --namespace AWS/DynamoDB \
+     --metric-name ThrottledRequests \
+     --dimensions Name=TableName,Value=observability-prod-mimir \
+     --start-time 2024-01-01T00:00:00Z \
+     --end-time 2024-01-02T00:00:00Z \
+     --period 3600 \
+     --statistics Sum
+   ```
+
+### Debug Commands
+
+```bash
+# Check service account annotations
+kubectl get sa mimir -n monitoring -o yaml
+
+# Verify pod is using the service account
+kubectl get pod <mimir-pod> -n monitoring -o yaml | grep serviceAccount
+
+# Test AWS credentials in pod
+kubectl exec -it <mimir-pod> -n monitoring -- env | grep AWS
+
+# Test AWS API access
+kubectl exec -it <mimir-pod> -n monitoring -- aws sts get-caller-identity
+```
+
+## 💰 Cost Optimization
+
+### Expected Monthly Costs (Production)
+
+- **DynamoDB**: $50-200 (depends on read/write patterns)
+- **S3 Storage**: $100-500 (depends on data volume and lifecycle)
+- **KMS**: $1-5 (key usage)
+- **Data Transfer**: $10-100 (depends on cross-AZ traffic)
+
+**Total**: ~$160-800/month for production workload
+
+### Cost Reduction Strategies
+
+1. **Lifecycle Policies**: Automatic transition to cheaper storage classes
+2. **Intelligent Tiering**: S3 automatically optimizes storage costs
+3. **Pay-per-Request**: DynamoDB billing only for actual usage
+4. **Retention Policies**: Automatic cleanup of old data
+5. **Resource Tagging**: Detailed cost allocation and tracking
+
+## 🔐 Security Considerations
+
+### Encryption
+
+- ✅ **DynamoDB**: Encryption at rest with AWS managed keys
+- ✅ **S3**: Customer-managed KMS keys with rotation
+- ✅ **Transit**: All connections use TLS 1.2+
+
+### Access Control
+
+- ✅ **Least Privilege**: Each service has minimal required permissions
+- ✅ **IRSA**: Secure token exchange without long-lived credentials
+- ✅ **Resource-Based**: Bucket policies restrict access to specific roles
+
+### Monitoring
+
+- ✅ **CloudTrail**: All API calls logged
+- ✅ **Access Logs**: S3 bucket access logging enabled
+- ✅ **Metrics**: CloudWatch metrics for all services
+
+## 🆘 Support
 
 ---
 

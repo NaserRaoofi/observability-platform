@@ -1,0 +1,96 @@
+# Grafana Operator Configuration for Enterprise Observability Platform
+# Deploys Grafana Operator to manage Grafana instances via CRDs
+# The actual Grafana instance is managed via operator/grafana-instance.yaml CRD
+
+# Grafana Operator Helm Chart Values
+grafana-operator:
+  # Operator configuration
+  nameOverride: "grafana-operator"
+  fullnameOverride: "grafana-operator"
+
+  # Operator image
+  image:
+    repository: ghcr.io/grafana/grafana-operator
+    tag: "v5.4.2"
+    pullPolicy: IfNotPresent
+
+  # Resources for operator
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  # Operator permissions
+  rbac:
+    create: true
+
+  serviceAccount:
+    create: true
+    name: grafana-operator
+
+  # Watch all namespaces or specific ones
+  watchNamespaces: [] # Empty = all namespaces
+
+  # Operator configuration
+  args:
+    - --grafana-image=grafana/grafana
+    - --grafana-image-tag=10.2.0
+    - --grafana-plugins-init-container-image=grafana/grafana
+    - --grafana-plugins-init-container-tag=10.2.0
+    - --scan-all=true
+    - --log-level=info
+
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+  # Pod annotations
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+
+  # Pod labels
+  podLabels:
+    app.kubernetes.io/component: grafana-operator
+    app.kubernetes.io/part-of: observability-stack
+
+  # Node selector
+  nodeSelector: {}
+
+  # Tolerations
+  tolerations: []
+
+  # Affinity
+  affinity: {}
+# ==============================================================================
+# LEGACY CONFIGURATION - FOR REFERENCE ONLY
+# The following configuration was used with the Grafana Helm chart
+# It's now replaced by CRDs in operator/grafana-instance.yaml
+# ==============================================================================
+
+# Original Helm chart values (preserved for reference):
+# - Admin credentials: admin/admin123!
+# - Plugins: grafana-piechart-panel,grafana-clock-panel,etc.
+# - Data sources: Mimir, Loki, Tempo, AlertManager
+# - Dashboard provisioning via ConfigMaps
+# - Storage: 10Gi PVC with gp3
+# - Resources: 1Gi memory, 1 CPU limit
+# - Security: Non-root, read-only filesystem
+# - Monitoring: ServiceMonitor enabled
+# - Network: ClusterIP service, optional ingress
+
+# Migration Notes:
+# 1. All Grafana configuration moved to operator/grafana-instance.yaml
+# 2. Data sources moved to operator/datasources.yaml
+# 3. Dashboards moved to dashboards/*.yaml as CRDs
+# 4. This file now only configures the Grafana Operator itself

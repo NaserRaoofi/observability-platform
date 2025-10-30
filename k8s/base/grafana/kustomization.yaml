@@ -1,0 +1,46 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: observability
+
+resources:
+  # Grafana Operator Helm Chart (deploys the operator itself)
+  # Note: This should be deployed separately via Helmfile or manually first
+  # helm install grafana-operator grafana/grafana-operator -f values-operator.yaml
+
+  # Grafana Operator Components (managed by the operator)
+  - operator/grafana-instance.yaml
+  - operator/datasources.yaml
+
+  # Dashboard CRDs - Infrastructure
+  - dashboards/infrastructure/alertmanager-overview.yaml
+  - dashboards/infrastructure/kubernetes-cluster.yaml
+
+  # Dashboard CRDs - Observability Platform
+  - dashboards/observability-platform/otel-collector.yaml
+  - dashboards/observability-platform/mimir-overview.yaml
+  - dashboards/observability-platform/loki-overview.yaml
+  - dashboards/observability-platform/tempo-overview.yaml
+
+  # Dashboard CRDs - Reliability
+  - dashboards/reliability/slo-monitoring.yaml
+
+# Apply consistent labeling across all components
+commonLabels:
+  app.kubernetes.io/name: grafana
+  app.kubernetes.io/component: observability
+  app.kubernetes.io/part-of: observability-stack
+  observability.platform/stack: "enterprise"
+  observability.platform/version: "v1.0.0"
+
+commonAnnotations:
+  grafana.integreatly.org/managed-by: grafana-operator
+  app.kubernetes.io/version: "v1.0.0"
+  config.k8s.io/origin: |
+    configuredIn: k8s/base/grafana/kustomization.yaml
+    configuredBy: kustomize
+
+# Deployment order for proper initialization
+# 1. Grafana instance (creates the base application)
+# 2. Data sources (configure connections to backend services)
+# 3. Dashboards (load visualization configurations)
