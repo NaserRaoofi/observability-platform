@@ -89,19 +89,18 @@ module "observability_s3" {
 }
 
 # ==========================================
-# IAM Module - IRSA Roles and Policies
+# IAM Module - Roles and Policies
 # ==========================================
 module "observability_iam" {
   source = "../../modules/iam"
 
-  # Environment configuration
-  environment = var.environment
+  # Module parameters
+  project_name = var.project_name
+  environment  = var.environment
 
-  # Required: EKS OIDC provider ARN
-  eks_oidc_provider_arn = var.eks_oidc_provider_arn
-
-  # Service account namespace
-  monitoring_namespace = var.monitoring_namespace
+  # EKS Configuration (placeholder - update with actual EKS OIDC provider ARN)
+  eks_oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/oidc.eks.us-west-2.amazonaws.com/id/EXAMPLE"
+  monitoring_namespace = "monitoring"
 
   # Required: DynamoDB table ARNs
   mimir_table_arn = module.observability_dynamodb.mimir_table_arn
@@ -121,27 +120,4 @@ module "observability_iam" {
   tags = local.common_tags
 }
 
-# ==========================================
-# Grafana Module - Dashboards and Configuration
-# ==========================================
-module "observability_grafana" {
-  source = "../../modules/grafana"
 
-  # Dashboard configuration
-  enable_dashboards    = var.enable_grafana_dashboards
-  grafana_org_id      = var.grafana_org_id
-  grafana_folder_uid  = "observability-${var.environment}"
-
-  # Data source endpoints (adjust based on your setup)
-  prometheus_endpoint   = var.prometheus_endpoint
-  alertmanager_endpoint = var.alertmanager_endpoint
-
-  # Workspace configuration (for managed Grafana)
-  create_workspace      = var.create_grafana_workspace
-  workspace_name        = "${var.project_name}-${var.environment}"
-  workspace_description = "Observability platform Grafana workspace for ${var.environment}"
-  workspace_role_arn    = var.create_grafana_role ? module.observability_iam.grafana_role_arn : null
-
-  # Tags
-  tags = local.common_tags
-}

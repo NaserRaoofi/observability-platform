@@ -1,0 +1,129 @@
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDataSource
+metadata:
+  name: mimir-datasource
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/component: datasource
+    app.kubernetes.io/part-of: observability-stack
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: "observability"
+  datasource:
+    name: Mimir
+    type: prometheus
+    uid: mimir
+    access: proxy
+    url: http://mimir-gateway.observability.svc.cluster.local:8080/prometheus
+    isDefault: true
+    jsonData:
+      httpMethod: POST
+      prometheusType: Mimir
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo
+      customQueryParameters: ""
+    editable: true
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDataSource
+metadata:
+  name: loki-datasource
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/component: datasource
+    app.kubernetes.io/part-of: observability-stack
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: "observability"
+  datasource:
+    name: Loki
+    type: loki
+    uid: loki
+    access: proxy
+    url: http://loki-gateway.observability.svc.cluster.local:3100
+    jsonData:
+      maxLines: 1000
+      derivedFields:
+        - datasourceUid: tempo
+          matcherRegex: "trace_id=(\\w+)"
+          name: TraceID
+          url: "$${__value.raw}"
+    editable: true
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDataSource
+metadata:
+  name: tempo-datasource
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/component: datasource
+    app.kubernetes.io/part-of: observability-stack
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: "observability"
+  datasource:
+    name: Tempo
+    type: tempo
+    uid: tempo
+    access: proxy
+    url: http://tempo-gateway.observability.svc.cluster.local:3200
+    jsonData:
+      httpMethod: GET
+      tracesToLogs:
+        datasourceUid: loki
+        tags: ["job", "instance", "pod", "namespace"]
+        mappedTags:
+          - key: "service.name"
+            value: "service"
+        mapTagNamesEnabled: false
+        spanStartTimeShift: "1h"
+        spanEndTimeShift: "1h"
+        filterByTraceID: false
+        filterBySpanID: false
+      tracesToMetrics:
+        datasourceUid: mimir
+        tags:
+          - key: "service.name"
+            value: "service"
+          - key: "job"
+        queries:
+          - name: "Sample query"
+            query: "sum(rate(traces_spanmetrics_latency_bucket{$$__tags}[5m]))"
+      serviceMap:
+        datasourceUid: mimir
+      search:
+        hide: false
+      nodeGraph:
+        enabled: true
+    editable: true
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDataSource
+metadata:
+  name: alertmanager-datasource
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/component: datasource
+    app.kubernetes.io/part-of: observability-stack
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: "observability"
+  datasource:
+    name: AlertManager
+    type: alertmanager
+    uid: alertmanager
+    access: proxy
+    url: http://alertmanager.observability.svc.cluster.local:9093
+    jsonData:
+      implementation: prometheus
+      handleGrafanaManagedAlerts: false
+    editable: true

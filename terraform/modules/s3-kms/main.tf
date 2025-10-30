@@ -94,7 +94,7 @@ resource "aws_kms_alias" "s3_encryption" {
 # ===============================================================================
 
 module "mimir_bucket" {
-  source = "../../../terraform-aws-s3-bucket"
+  source = "github.com/NaserRaoofi/terraform-aws-modules//modules/s3-bucket?ref=main"
 
   count = var.create_mimir_bucket ? 1 : 0
 
@@ -194,7 +194,7 @@ module "mimir_bucket" {
 # ===============================================================================
 
 module "loki_bucket" {
-  source = "../../../terraform-aws-s3-bucket"
+  source = "github.com/NaserRaoofi/terraform-aws-modules//modules/s3-bucket?ref=main"
 
   count = var.create_loki_bucket ? 1 : 0
 
@@ -272,7 +272,7 @@ module "loki_bucket" {
 # ===============================================================================
 
 module "tempo_bucket" {
-  source = "../../../terraform-aws-s3-bucket"
+  source = "github.com/NaserRaoofi/terraform-aws-modules//modules/s3-bucket?ref=main"
 
   count = var.create_tempo_bucket ? 1 : 0
 
@@ -352,7 +352,7 @@ module "tempo_bucket" {
 # ===============================================================================
 
 module "access_logs_bucket" {
-  source = "../../../terraform-aws-s3-bucket"
+  source = "github.com/NaserRaoofi/terraform-aws-modules//modules/s3-bucket?ref=main"
 
   count = var.enable_access_logging && var.access_log_bucket_name == null ? 1 : 0
 
