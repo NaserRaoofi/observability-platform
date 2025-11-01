@@ -362,4 +362,165 @@ grafana_stat_active_users
 - **Audit logging** enabled for compliance requirements
 - **Network isolation** via NetworkPolicies
 
-This Grafana deployment provides **enterprise-grade visualization** with comprehensive dashboards, advanced correlation capabilities, and robust security configurations for your observability platform.
+## Grafana Operator Migration
+
+### **Migration from Helm to Operator**
+
+The Grafana setup has been migrated from **Helm chart** to **Grafana Operator** approach for better Kubernetes-native management.
+
+#### **New Structure**
+
+```
+k8s/base/grafana/
+├── operator/
+│   ├── grafana-instance.yaml      # Main Grafana instance CRD
+│   └── datasources.yaml           # Data source configurations
+├── dashboards/
+│   ├── infrastructure/            # Infrastructure dashboards
+│   ├── observability-platform/    # Platform-specific dashboards
+│   └── reliability/               # SLO monitoring dashboards
+├── kustomization.yaml             # Orchestration configuration
+├── values-operator.yaml           # Grafana Operator Helm values
+└── README.md                      # This documentation
+```
+
+#### **Deployment Commands**
+
+**1. Install Grafana Operator:**
+
+```bash
+# Add Grafana Operator Helm repository
+helm repo add grafana-operator https://grafana.github.io/grafana-operator
+helm repo update
+
+# Install the operator
+helm install grafana-operator grafana-operator/grafana-operator \
+  --namespace grafana-system \
+  --create-namespace \
+  --values k8s/base/grafana/values-operator.yaml
+```
+
+**2. Deploy Grafana Instance & Resources:**
+
+```bash
+# Create observability namespace
+kubectl create namespace observability --dry-run=client -o yaml | kubectl apply -f -
+
+# Deploy Grafana instance, data sources, and dashboards
+kubectl apply -k k8s/base/grafana/
+
+# Verify deployment
+kubectl get grafana,grafanadatasource,grafanadashboard -n observability
+```
+
+**3. Access Grafana:**
+
+```bash
+# Port forward to access Grafana UI
+kubectl port-forward -n observability svc/grafana-service 3000:80
+
+# Open browser: http://localhost:3000
+# Default credentials: admin / admin123!
+```
+
+#### **Operator vs Helm Benefits**
+
+| Aspect           | Helm Chart                 | Grafana Operator         |
+| ---------------- | -------------------------- | ------------------------ |
+| **Management**   | Helm lifecycle             | Kubernetes-native CRDs   |
+| **Dashboards**   | ConfigMaps + Sidecar       | GrafanaDashboard CRDs    |
+| **Data Sources** | Static YAML provisioning   | GrafanaDataSource CRDs   |
+| **Updates**      | `helm upgrade`             | `kubectl apply`          |
+| **GitOps**       | Helm-based workflows       | Native Kubernetes GitOps |
+| **Scaling**      | Manual resource management | Operator-managed         |
+
+## OpenTelemetry Integration
+
+### **Metrics Collection Architecture**
+
+This platform uses **OpenTelemetry Collector** (not Prometheus directly) for unified telemetry collection:
+
+```
+📊 Metrics Flow:
+┌─────────────┐    ┌─────────────────────┐    ┌─────────────┐
+│   Grafana   │───▶│ OpenTelemetry       │───▶│    Mimir    │
+│ (queries)   │    │ Collector           │    │ (storage)   │
+└─────────────┘    │ (prometheus recv)   │    └─────────────┘
+                   └─────────────────────┘
+                            ▲
+┌─────────────┐            │
+│  Exporters  │────────────┘
+│ + Grafana   │
+└─────────────┘
+```
+
+### **Grafana Metrics Scraping**
+
+Grafana instance uses **platform-specific annotations** for OpenTelemetry Collector discovery:
+
+```yaml
+# Grafana pod annotations (automatically added by operator)
+annotations:
+  observability.platform/scrape: "true"
+  observability.platform/port: "3000"
+  observability.platform/path: "/metrics"
+  observability.platform/component: "grafana"
+```
+
+### **Available Grafana Metrics**
+
+Once scraped by OpenTelemetry Collector, these metrics are available in Mimir:
+
+- `grafana_http_request_duration_seconds` - Request latency
+- `grafana_http_requests_total` - Request count by status
+- `grafana_dashboard_views_total` - Dashboard popularity
+- `grafana_datasource_request_duration_seconds` - Data source performance
+- `grafana_alerting_active_alerts` - Active alerts count
+- `process_cpu_seconds_total` - CPU usage
+- `process_memory_bytes` - Memory usage
+
+### **Configuration Verification**
+
+To ensure Grafana metrics are collected, verify in OpenTelemetry Collector configuration:
+
+```bash
+# Check if Grafana target is discovered
+kubectl logs -n observability daemonset/otel-collector | grep -i grafana
+
+# Query Grafana metrics in Mimir
+# Data source: Mimir, Query: grafana_http_requests_total
+```
+
+## Troubleshooting
+
+### **Operator Issues**
+
+```bash
+# Check operator status
+kubectl get pods -n grafana-system -l app.kubernetes.io/name=grafana-operator
+
+# Check operator logs
+kubectl logs -n grafana-system deployment/grafana-operator
+```
+
+### **Instance Issues**
+
+```bash
+# Check Grafana instance status
+kubectl describe grafana -n observability grafana-instance
+
+# Check Grafana pods
+kubectl get pods -n observability -l app=grafana
+```
+
+### **Data Source Issues**
+
+```bash
+# Check data source CRDs
+kubectl describe grafanadatasource -n observability
+
+# Test connectivity from Grafana pod
+kubectl exec -it -n observability <grafana-pod> -- curl http://mimir-gateway:8080/-/ready
+```
+
+This Grafana deployment provides **enterprise-grade visualization** with comprehensive dashboards, advanced correlation capabilities, Kubernetes-native operator management, and robust OpenTelemetry integration for your observability platform.

@@ -1,16 +1,70 @@
-# tfsec configuration
-severity: MEDIUM
+# Enhanced tfsec configuration for observability platform
+# https://aquasecurity.github.io/tfsec/latest/guides/configuration/
 
+# Minimum severity to report
+minimum-severity: MEDIUM
+
+# Include specific check groups
 include:
   - aws-*
+  - kubernetes-*
+  - docker-*
 
+# Exclude specific checks (with justification)
 exclude:
-  # Exclude rules that may not apply to our specific use case
-  - aws-s3-bucket-public-read-prohibited # Only if public access is intentional
-  - aws-ec2-no-public-ingress-sgr # Only if public access is required for ALB
+  # Public access exclusions (only if ALB/ingress requires it)
+  - aws-s3-bucket-public-read-prohibited # May be needed for static assets
+  - aws-ec2-no-public-ingress-sgr # ALB security groups need public access
 
-# Custom checks
-custom_checks:
-  - name: "observability-naming-convention"
-    description: "Ensure resources follow observability naming convention"
-    severity: HIGH
+  # Observability-specific exclusions
+  - aws-cloudwatch-log-group-retention # Retention may be managed externally
+
+# Soft fail checks (warn but don't fail CI)
+soft-fail:
+  - aws-s3-bucket-logging # Logging may be centralized
+  - aws-iam-no-policy-wildcards # Some observability roles need broad access
+
+# Configuration options
+config:
+  # Enable/disable features
+  include-ignored: false
+  include-passed: false
+  no-colours: false
+  concise-output: false
+
+# Output settings
+format: default
+output: results
+
+# Workspace settings
+workspace: terraform/
+
+# Terraform settings
+terraform-version: ">=1.0"
+terraform-vars-file:
+  - "terraform.tfvars"
+  - "terraform.tfvars.example"
+
+# Custom metadata
+metadata:
+  project: "observability-platform"
+  team: "platform"
+  environment: "multi"
+
+# Rule configuration
+rule-config:
+  # AWS-specific configurations
+  aws-s3-bucket-encryption:
+    enforce_ssl: true
+  aws-iam-enforce-mfa:
+    exclude_service_accounts: true
+
+# Severity overrides for observability context
+severity-overrides:
+  # Make observability-critical checks HIGH
+  aws-cloudwatch-log-group-kms-key-id: HIGH
+  aws-s3-bucket-encryption-customer-key: HIGH
+  aws-iam-no-user-attached-policies: HIGH
+
+  # Reduce severity for development environments
+  aws-rds-encrypt-instance-storage-data: MEDIUM

@@ -1,0 +1,57 @@
+# Trivy Configuration for Container Security Scanning
+# https://aquasecurity.github.io/trivy/latest/docs/configuration/
+
+# Scan settings
+format: table
+exit-code: 1
+severity: HIGH,CRITICAL
+ignore-unfixed: false
+remove-java-archive: false
+skip-update: false
+skip-java-db-update: false
+skip-check-update: false
+
+# Vulnerability settings
+vuln-type:
+  - os
+  - library
+
+# Security settings
+security-checks:
+  - vuln
+  - config
+  - secret
+
+# Output settings
+template: |
+  Container Security Scan Results
+  ==============================
+  {{- range . }}
+  Target: {{ .Target }}
+  Type: {{ .Type }}
+  {{- if (eq (len .Vulnerabilities) 0) }}
+  ✅ No vulnerabilities found
+  {{- else }}
+
+  Vulnerabilities ({{ len .Vulnerabilities }}):
+  {{- range .Vulnerabilities }}
+  - {{ .VulnerabilityID }}: {{ .Title }} ({{ .Severity }})
+    Package: {{ .PkgName }}@{{ .InstalledVersion }}
+    {{- if .FixedVersion }}
+    Fixed Version: {{ .FixedVersion }}
+    {{- end }}
+  {{- end }}
+  {{- end }}
+  {{- end }}
+
+# Cache settings
+cache-dir: /tmp/.cache/trivy
+
+# Timeout settings
+timeout: 15m
+
+# Skip files
+skip-files:
+  - "**/*.md"
+  - "**/*.txt"
+  - "**/LICENSE"

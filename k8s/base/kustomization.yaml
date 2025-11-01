@@ -9,22 +9,26 @@ metadata:
 namespace: observability
 
 resources:
-  # Core observability platform components
-  - otel-collector/
+  # 1. Security policies first (creates namespace and security constraints)
+  - policy/
+
+  # 2. Storage and data components
   - mimir/
   - loki/
   - tempo/
-  - grafana/
 
-  # SLO monitoring and alerting
-  - sloth/
-  - alertmanager/
-
-  # Metrics exporters
+  # 3. Collection layer
+  - otel-collector/
   - exporters/
 
-  # Security policies
-  - policy/
+  # 4. SLO monitoring
+  - sloth/
+
+  # 5. Alerting
+  - alertmanager/
+
+  # 6. Visualization (last, depends on data sources being ready)
+  - grafana/
 
 labels:
   - pairs:
@@ -37,6 +41,9 @@ commonAnnotations:
   config.k8s.io/origin: |
     configuredIn: k8s/base/kustomization.yaml
     configuredBy: kustomize
+  # Platform metadata
+  observability.platform/deployment-date: "2025-11-01"
+  observability.platform/config-hash: "base-v1.0.0"
 
 # Apply consistent labeling across all components
 commonLabels:
@@ -51,6 +58,26 @@ commonLabels:
 # 5. Alerting (AlertManager)
 # 6. Visualization (Grafana)
 
+# Image transformations (can be used to override image versions globally)
+images: []
+
+# Strategic merge patches (for complex patches)
 patchesStrategicMerge: []
 
+# JSON 6902 patches (for targeted patches)
 patches: []
+
+# Replacement transformations
+replacements: []
+
+# Configuration generators (for dynamic config generation)
+configMapGenerator: []
+secretGenerator: []
+
+# Resource generation options
+generatorOptions:
+  disableNameSuffixHash: false
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    config.kubernetes.io/origin: "k8s/base/kustomization.yaml"

@@ -1,23 +1,61 @@
 # AlertManager Helm Configuration
 # Official AlertManager chart for alert routing and notification
+#
+# Hybrid Approach:
+# - Hardcoded: Stable values that rarely change (image, resources, etc.)
+# - Templated: Organization/environment-specific values (emails, URLs, cluster names)
+#
+# Override these values in environment-specific files:
+# - clusterName: Your cluster identifier
+# - environment: dev/staging/prod
+# - smtp: Your organization's SMTP settings
+# - emails: Your team's email addresses
+# - externalUrl: Your AlertManager URL
 
-# Global settings
+# =============================================================================
+# DEFAULT VALUES (Override these in your environment-specific values files)
+# =============================================================================
+
+# Cluster identification (Template: varies per deployment)
+clusterName: "observability-cluster"
+environment: "production"
+
+# External access configuration (specified in main config section below)
+
+# SMTP configuration (Template: organization-specific)
+smtp:
+  host: "localhost:587"
+  fromEmail: "alertmanager@company.local"
+  username: "alertmanager@company.local"
+
+# Team email addresses (Template: organization-specific)
+emails:
+  sreOncall: "sre-oncall@company.local"
+  sreTeam: "sre-team@company.local"
+  infrastructure: "infrastructure@company.local"
+  security: "security@company.local"
+  general: "alerts@company.local"
+  sloMonitoring: "slo-monitoring@company.local"
+
+#
+
+# Global settings (Template: uses values above)
 global:
-  clusterName: "observability-cluster"
+  clusterName: '{{ .Values.clusterName | default "observability-cluster" }}'
+  environment: '{{ .Values.environment | default "production" }}'
 
-# Image configuration
+# Image configuration (Hardcoded: stable across deployments)
 image:
   repository: quay.io/prometheus/alertmanager
   tag: v0.26.0
   pullPolicy: IfNotPresent
 
-# Deployment configuration
-replicaCount: 3
+# Deployment configuration (Hardcoded: good defaults)
+replicaCount: 1
 
 # Service account
 serviceAccount:
   create: true
-  annotations: {}
   name: alertmanager
 
 # Pod security context
@@ -70,7 +108,6 @@ service:
   type: ClusterIP
   port: 9093
   targetPort: 9093
-  annotations: {}
 
 # Ingress configuration
 ingress:
@@ -78,7 +115,7 @@ ingress:
   className: ""
   annotations: {}
   hosts:
-    - host: alertmanager.local
+    - host: '{{ .Values.ingress.host | default "alertmanager.local" }}'
       paths:
         - path: /
           pathType: Prefix
@@ -91,26 +128,27 @@ persistence:
   accessModes:
     - ReadWriteOnce
   size: 10Gi
-  annotations: {}
 
   # AlertManager configuration
   config:
     global:
-      # Global SMTP settings for email notifications
-      smtp_smarthost: "smtp.company.com:587"
-      smtp_from: "alertmanager@company.com"
-      smtp_auth_username: "alertmanager@company.com"
+      # SMTP settings (Template: organization-specific)
+      smtp_smarthost: '{{ .Values.smtp.host | default "localhost:587" }}'
+      smtp_from: '{{ .Values.smtp.fromEmail | default "alertmanager@company.local" }}'
+      smtp_auth_username: '{{ .Values.smtp.username | default "alertmanager@company.local" }}'
       smtp_require_tls: true
 
-      # External URL for AlertManager console
-      external_url: "https://alertmanager.company.com"
+      # External URL (Template: deployment-specific)
+      external_url: '{{ .Values.externalUrl | default "http://alertmanager.local" }}'
 
-      # Default notification settings
+      # Notification settings (Hardcoded: stable defaults)
       resolve_timeout: "5m"
 
-    # Load custom notification templates
+    # Load custom notification templates (Hardcoded: standard path)
     templates:
-      - "/etc/alertmanager/templates/*.tmpl" # Route configuration - how alerts are grouped and routed
+      - "/etc/alertmanager/templates/*.tmpl"
+
+  # Route configuration (Hardcoded: good defaults for most orgs)
   route:
     group_by: ["alertname", "cluster", "service"]
     group_wait: 10s
@@ -157,7 +195,7 @@ persistence:
       - match: {}
         receiver: "general-notifications"
 
-  # Inhibition rules - suppress alerts based on other alerts
+  # Inhibition rules (Hardcoded: standard suppression logic)
   inhibit_rules:
     # Suppress warning alerts when critical alerts are firing
     - source_match:
@@ -173,7 +211,7 @@ persistence:
         alertname: ".*(Down|Unavailable)"
       equal: ["cluster"]
 
-  # Receivers - notification channel definitions
+  # Receivers (Template: organization-specific email addresses)
   receivers:
     - name: "default-receiver"
       webhook_configs:
@@ -182,26 +220,27 @@ persistence:
     # SLO Critical alerts
     - name: "slo-critical"
       email_configs:
-        - to: "sre-oncall@company.com"
+        - to: '{{ .Values.emails.sreOncall | default "sre-oncall@company.local" }}'
           subject: '{{ template "slo.email.subject" . }}'
           body: '{{ template "slo.email.body" . }}'
 
     # SLO High severity alerts
     - name: "slo-high"
       email_configs:
-        - to: "sre-team@company.com"
+        - to: '{{ .Values.emails.sreTeam | default "sre-team@company.local" }}'
           subject: '{{ template "slo.email.subject" . }}'
           body: '{{ template "slo.email.body" . }}'
+
     # Infrastructure team alerts
     - name: "infrastructure-team"
       email_configs:
-        - to: "infrastructure@company.com"
+        - to: '{{ .Values.emails.infrastructure | default "infrastructure@company.local" }}'
           subject: "Infrastructure Alert: {{ .GroupLabels.alertname }} [{{ .CommonLabels.severity | upper }}]"
           body: |
             Infrastructure Alert
 
             Component: {{ .GroupLabels.service | default .GroupLabels.job }}
-            Environment: {{ .GroupLabels.cluster | default "production" }}
+            Environment: {{ .GroupLabels.cluster | default .Values.environment }}
             Severity: {{ .CommonLabels.severity | title }}
 
             {{ range .Alerts.Firing -}}
@@ -217,14 +256,14 @@ persistence:
     # Security team alerts
     - name: "security-team"
       email_configs:
-        - to: "security@company.com"
+        - to: '{{ .Values.emails.security | default "security@company.local" }}'
           subject: '{{ template "security.email.subject" . }}'
           body: |
             SECURITY ALERT
 
             Alert Type: {{ .GroupLabels.category | default "Security Incident" }}
             Severity: {{ .CommonLabels.severity | upper }}
-            Environment: {{ .GroupLabels.cluster | default "production" }}
+            Environment: {{ .GroupLabels.cluster | default .Values.environment }}
 
             {{ range .Alerts.Firing -}}
             Incident: {{ .Labels.alertname }}
@@ -242,31 +281,31 @@ persistence:
     # General notifications
     - name: "general-notifications"
       email_configs:
-        - to: "alerts@company.com"
+        - to: '{{ .Values.emails.general | default "alerts@company.local" }}'
           subject: "General Alert: {{ .GroupLabels.alertname }}"
           body: '{{ template "slack.default.text" . }}'
 
     # SLO warning level alerts
     - name: "slo-warning"
       email_configs:
-        - to: "slo-monitoring@company.com"
+        - to: '{{ .Values.emails.sloMonitoring | default "slo-monitoring@company.local" }}'
           subject: '{{ template "slo.email.subject" . }}'
           body: '{{ template "slo.email.body" . }}'
 
-  # Alert templates
+  # Alert templates (Hardcoded: standard path)
   templates:
     - "/etc/alertmanager/templates/*.tmpl"
 
-# External URL configuration
-externalUrl: "http://alertmanager.observability.local"
+# External URL (Template: deployment-specific)
+externalUrl: '{{ .Values.externalUrl | default "http://alertmanager.local" }}'
 
-# Storage retention
+# Storage retention (Hardcoded: good default)
 retention: 120h
 
-# Web configuration
+# Web configuration (Template: deployment-specific URL)
 web:
   route_prefix: /
-  external_url: http://alertmanager.observability.local
+  external_url: '{{ .Values.externalUrl | default "http://alertmanager.local" }}'
 
 # Pod annotations for metrics scraping
 podAnnotations:
@@ -335,10 +374,10 @@ configmapReload:
 statefulSet:
   enabled: true
 
-# Cluster configuration
+# Cluster configuration (Template: namespace-specific)
 cluster:
   enabled: true
   peers:
-    - alertmanager-0.alertmanager.observability.svc.cluster.local:9094
-    - alertmanager-1.alertmanager.observability.svc.cluster.local:9094
-    - alertmanager-2.alertmanager.observability.svc.cluster.local:9094
+    - alertmanager-0.alertmanager.{{ .Release.Namespace }}.svc.cluster.local:9094
+    - alertmanager-1.alertmanager.{{ .Release.Namespace }}.svc.cluster.local:9094
+    - alertmanager-2.alertmanager.{{ .Release.Namespace }}.svc.cluster.local:9094
