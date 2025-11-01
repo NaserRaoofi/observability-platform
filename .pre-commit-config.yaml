@@ -1,0 +1,246 @@
+# Pre-commit configuration for observability platform
+# https://pre-commit.com/
+#
+# Install: pre-commit install
+# Run manually: pre-commit run --all-files
+# Update hooks: pre-commit autoupdate
+
+repos:
+  # General code quality
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: |
+          (?x)^(
+            .*\.md|
+            .*\.txt
+          )$
+      - id: end-of-file-fixer
+        exclude: |
+          (?x)^(
+            .*\.md|
+            .*\.txt
+          )$
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+        exclude: |
+          (?x)^(
+            .*\.template\.yaml|
+            .*\.template\.yml|
+            k8s/.*/templates/.*
+          )$
+      - id: check-json
+        exclude: |
+          (?x)^(
+            .*\.template\.json
+          )$
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+      - id: detect-private-key
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  # YAML linting
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.32.0
+    hooks:
+      - id: yamllint
+        args: [-c=ci/lint/.yamllint.yml]
+        exclude: |
+          (?x)^(
+            .*\.template\.yaml|
+            .*\.template\.yml|
+            k8s/.*/templates/.*
+          )$
+
+  # Markdown linting
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.37.0
+    hooks:
+      - id: markdownlint
+        args: [-c, ci/lint/.markdownlint.json]
+
+  # Shell script linting
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.9.0.5
+    hooks:
+      - id: shellcheck
+        args: [-e, SC1091] # Ignore sourcing external files
+
+  # Terraform formatting and validation
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.83.5
+    hooks:
+      - id: terraform_fmt
+        args:
+          - --args=-recursive
+      - id: terraform_validate
+        exclude: |
+          (?x)^(
+            terraform/modules/.*
+          )$
+      - id: terraform_docs
+        args:
+          - --hook-config=--path-to-file=README.md
+          - --hook-config=--add-to-existing-file=true
+          - --hook-config=--create-file-if-not-exist=true
+      - id: terraform_tflint
+        args:
+          - --args=--config=__GIT_WORKING_DIR__/.tflint.hcl
+
+  # Terraform security scanning
+  - repo: https://github.com/aquasecurity/tfsec
+    rev: v1.28.1
+    hooks:
+      - id: tfsec
+        args:
+          - --config-file=ci/tf-tests/.tfsec.yml
+          - --soft-fail
+
+  # Python code quality
+  - repo: https://github.com/psf/black
+    rev: 23.7.0
+    hooks:
+      - id: black
+        language_version: python3
+
+  - repo: https://github.com/pycqa/isort
+    rev: 5.12.0
+    hooks:
+      - id: isort
+        args: [--profile, black]
+
+  - repo: https://github.com/pycqa/flake8
+    rev: 6.1.0
+    hooks:
+      - id: flake8
+        additional_dependencies: [flake8-docstrings]
+        args: [--max-line-length=88, --extend-ignore=E203, W503]
+
+  # Python security scanning
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.5
+    hooks:
+      - id: bandit
+        args: [-r, --skip, B101, B601]
+        files: \.py$
+
+  # Docker linting
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.12.0
+    hooks:
+      - id: hadolint-docker
+        args: [--ignore, DL3008, --ignore, DL3009]
+
+  # Git commit message linting
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: 3.8.2
+    hooks:
+      - id: commitizen
+
+  # Secrets detection
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+      - id: detect-secrets
+        args: [--baseline, .secrets.baseline]
+        exclude: |
+          (?x)^(
+            .*\.lock|
+            package-lock\.json|
+            poetry\.lock|
+            Pipfile\.lock
+          )$
+
+  # JSON formatting
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v3.0.3
+    hooks:
+      - id: prettier
+        types: [json]
+        exclude: |
+          (?x)^(
+            .*\.template\.json|
+            package-lock\.json
+          )$
+
+  # Infrastructure as Code security
+  - repo: https://github.com/bridgecrewio/checkov
+    rev: 2.4.9
+    hooks:
+      - id: checkov
+        args:
+          - --config-file=ci/security/checkov/.checkov.yml
+          - --soft-fail
+          - --quiet
+        files: |
+          (?x)^(
+            .*\.tf|
+            .*\.yaml|
+            .*\.yml|
+            Dockerfile.*
+          )$
+
+  # Kubernetes manifest validation
+  - repo: local
+    hooks:
+      - id: kubernetes-validate
+        name: Validate Kubernetes manifests
+        entry: ci/validation/kustomize-validate.sh
+        language: script
+        files: ^k8s/.*\.(yaml|yml)$
+        require_serial: true
+
+  # OPA policy testing
+  - repo: local
+    hooks:
+      - id: opa-policy-test
+        name: Test OPA policies
+        entry: ci/policy-tests/test-policies.sh
+        language: script
+        files: |
+          (?x)^(
+            ci/policy-tests/.*\.rego|
+            k8s/.*\.(yaml|yml)
+          )$
+        require_serial: true
+
+  # Dependency security scanning
+  - repo: local
+    hooks:
+      - id: dependency-check
+        name: Dependency security check
+        entry: ci/quality-gates/dependency-check.sh
+        language: script
+        files: |
+          (?x)^(
+            requirements.*\.txt|
+            package\.json|
+            Pipfile|
+            pyproject\.toml|
+            go\.mod
+          )$
+        require_serial: true
+
+# Configuration for individual hooks
+fail_fast: false
+default_stages: [commit]
+
+# Exclude patterns (global)
+exclude: |
+  (?x)^(
+    \.reports/.*|
+    \.cache/.*|
+    \.terraform/.*|
+    \.git/.*|
+    node_modules/.*|
+    __pycache__/.*|
+    \.pytest_cache/.*|
+    \.mypy_cache/.*|
+    .*\.egg-info/.*
+  )$
