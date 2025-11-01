@@ -1,0 +1,62 @@
+# Checkov configuration for Infrastructure as Code security scanning
+# https://www.checkov.io/2.Basics/Configuration.md
+
+# General settings
+quiet: false
+compact: false
+no-guide: false
+download-external-modules: true
+
+# Framework settings
+framework:
+  - terraform
+  - kubernetes
+  - dockerfile
+  - helm
+  - yaml
+
+# Check settings
+check:
+  # Enable high severity checks
+  - CKV_AWS_* # All AWS checks
+  - CKV_K8S_* # All Kubernetes checks
+  - CKV_DOCKER_* # All Docker checks
+  - CKV2_AWS_* # Advanced AWS checks
+
+# Skip checks (with justification)
+skip-check:
+  # Skip these only if justified in your environment
+  - CKV_AWS_18 # S3 bucket logging - may not be needed for temp buckets
+  - CKV_K8S_43 # Image should not have root access - some legacy images require this
+
+# Severity settings
+severity: HIGH
+
+# Output settings
+output:
+  - cli
+  - json
+
+# Baseline settings
+baseline: ci/security/checkov/.checkov.baseline
+
+# External checks
+external-checks-dir:
+  - ci/security/checkov/custom-checks/
+
+# Repository settings
+repo-root-for-plan-enrichment: terraform/
+
+# Secrets scanning
+enable-secret-scan-all-files: true
+secret-scan-providers:
+  - aws
+  - azure
+  - gcp
+  - github
+
+# Dockerfile settings
+dockerfile-path: docker/
+
+# Custom policies
+policy-metadata-filter: "BC_*"
