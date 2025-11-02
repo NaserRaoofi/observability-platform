@@ -213,10 +213,8 @@ RUN git config --global user.email "ci@observability-platform.com" \
     && git config --global user.name "CI Pipeline" \
     && git config --global init.defaultBranch main
 
-# Install pre-commit hooks system-wide
-RUN pip install pre-commit \
-    && cd /opt/ci-tools \
-    && pre-commit install-hooks
+# Install pre-commit (hooks will be installed when needed in CI workflow)
+RUN pip install pre-commit
 
 # Create CI scripts and entrypoints
 RUN printf '%s\n' \
