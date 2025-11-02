@@ -30,6 +30,11 @@ terraform.tfvars.backup
 *.swo
 *~
 
+# Reports and Artifacts
+.reports/
+*.sarif
+*.log
+
 # OS
 .DS_Store
 .DS_Store?
