@@ -365,49 +365,30 @@ jobs:
       contents: read
       packages: write
       security-events: write
-    outputs:
-      image-digest: ${{ steps.build.outputs.digest }}
-      image-tag: ${{ steps.meta.outputs.tags }}
+    # No outputs needed for CI-only container builds
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=sha,prefix={{branch}}-
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build container image (security scan)
+      - name: Build container image for testing
         uses: docker/build-push-action@v5
         continue-on-error: true
         with:
           context: .
           file: ./Dockerfile.ci
           push: false
-          tags: scan-image:latest
+          tags: ci-test-image:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          platforms: linux/amd64
 
       - name: Run Trivy container scan
         continue-on-error: true
         run: |
           # Check if container image was built successfully
-          if docker image inspect scan-image:latest >/dev/null 2>&1; then
+          if docker image inspect ci-test-image:latest >/dev/null 2>&1; then
             # Install Trivy if not available
             if ! command -v trivy &> /dev/null; then
               wget https://github.com/aquasecurity/trivy/releases/download/v0.47.0/trivy_0.47.0_Linux-64bit.tar.gz
@@ -416,30 +397,16 @@ jobs:
             fi
 
             echo "🔍 Scanning container image for vulnerabilities..."
-            trivy image --exit-code 0 --severity HIGH,CRITICAL scan-image:latest || echo "⚠️ Trivy scan completed with findings"
+            trivy image --exit-code 0 --severity HIGH,CRITICAL ci-test-image:latest || echo "⚠️ Trivy scan completed with findings"
           else
             echo "ℹ️ Container image not available - skipping security scan"
           fi
 
-      - name: Build container image (for validation)
-        id: build
-        continue-on-error: true
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile.ci
-          push: false
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          # Remove multi-platform for faster builds on feature branches
-          platforms: linux/amd64
-
       - name: Generate SBOM
+        continue-on-error: true
         run: |
           # Check if container image was built successfully
-          if docker image inspect scan-image:latest >/dev/null 2>&1; then
+          if docker image inspect ci-test-image:latest >/dev/null 2>&1; then
             # Install syft if not available
             if ! command -v syft &> /dev/null; then
               wget https://github.com/anchore/syft/releases/download/v0.95.0/syft_0.95.0_linux_amd64.tar.gz
@@ -448,10 +415,19 @@ jobs:
             fi
 
             echo "📋 Generating Software Bill of Materials (SBOM)..."
-            syft scan-image:latest -o spdx-json=sbom.spdx.json || echo "⚠️ SBOM generation completed with findings"
+            syft ci-test-image:latest -o spdx-json=sbom.spdx.json || echo "⚠️ SBOM generation completed with findings"
           else
             echo "ℹ️ Container image not available - skipping SBOM generation"
           fi
+
+      - name: Clean up container images
+        if: always()
+        run: |
+          echo "🧹 Cleaning up container images..."
+          # Remove the test image to free up space
+          docker rmi ci-test-image:latest || echo "Image already removed or not found"
+          # Clean up any dangling images
+          docker image prune -f || echo "No dangling images to clean"
 
       - name: Upload SBOM
         uses: actions/upload-artifact@v4
