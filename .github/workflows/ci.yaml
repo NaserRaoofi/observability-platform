@@ -2,15 +2,22 @@ name: Enterprise CI/CD Pipeline
 
 on:
   push:
-    branches: [main, develop, developer]
+    # Run CI on ALL branches - validation everywhere, deployment only on main
+    branches: ["**"]
   pull_request:
-    branches: [main]
+    # Run CI on ALL pull requests regardless of target branch
+    branches: ["**"]
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  # ==================== CI/CD WORKFLOW STRATEGY ====================
+  # ✅ VALIDATION: Runs on ALL branches (developer, feature, main, etc.)
+  # 🚀 DEPLOYMENT: Only runs on main branch after validation passes
+  # 📝 FLOW: feature-branch → validation only → PR → main → validation + deployment
+
   # ==================== LINTING JOBS ====================
   lint-comprehensive:
     name: Comprehensive Linting
@@ -437,7 +444,8 @@ jobs:
     name: Publish Container Image
     runs-on: ubuntu-latest
     needs: [validation-summary, container-security]
-    # 🎯 ONLY publish to registry on main branch (after PR approval & merge)
+    # 🎯 DEPLOYMENT GATE: Only publish to registry on main branch pushes
+    # This ensures feature/developer branches get validation but no deployment
     if: success() && github.ref == 'refs/heads/main' && github.event_name == 'push'
     permissions:
       contents: read
@@ -542,6 +550,7 @@ jobs:
     name: Trigger GitOps Deployment
     runs-on: ubuntu-latest
     needs: [publish-container]
+    # 🚀 GITOPS DEPLOYMENT: Only trigger deployment on successful main branch builds
     if: success() && github.ref == 'refs/heads/main'
     steps:
       - name: Trigger GitOps Repository Update
@@ -579,7 +588,8 @@ jobs:
     name: Development Branch Validation
     runs-on: ubuntu-latest
     needs: [validation-summary, container-security]
-    # 🧪 For development branches - validate but don't deploy
+    # 🧪 NON-MAIN BRANCHES: Complete validation without deployment
+    # Runs on: developer, feature, hotfix, etc. - any branch except main
     if: success() && github.ref != 'refs/heads/main'
     steps:
       - name: Development validation summary
