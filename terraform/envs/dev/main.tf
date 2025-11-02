@@ -1,16 +1,7 @@
 # Development Environment Configuration
 # Complete observability stack for development with cost optimization
 
-terraform {
-  required_version = ">= 1.0"
-
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-  }
-}
+# Version constraints moved to versions.tf
 
 # Configure AWS Provider
 provider "aws" {
