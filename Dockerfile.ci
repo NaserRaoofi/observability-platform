@@ -88,12 +88,16 @@ RUN wget -q https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraf
     && mv terraform /usr/local/bin/ \
     && rm terraform_${TERRAFORM_VERSION}_linux_amd64.zip
 
-# Install tfsec
-RUN curl -s https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash \
-    && mv tfsec /usr/local/bin/
+# Install tfsec (direct download approach)
+RUN wget -q https://github.com/aquasecurity/tfsec/releases/download/v${TFSEC_VERSION}/tfsec-linux-amd64 \
+    && chmod +x tfsec-linux-amd64 \
+    && mv tfsec-linux-amd64 /usr/local/bin/tfsec
 
-# Install Trivy
-RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin ${TRIVY_VERSION}
+# Install Trivy (direct download approach)
+RUN wget -q https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz \
+    && tar zxvf trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz \
+    && mv trivy /usr/local/bin/ \
+    && rm trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz
 
 # Install Conftest
 RUN wget -q https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz \
