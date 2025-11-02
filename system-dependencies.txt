@@ -1,0 +1,57 @@
+# System Dependencies for CI/CD Pipeline
+# These tools should be installed system-wide or in Docker containers
+
+# Container and Image Security Scanning
+# grype - Universal vulnerability scanner
+# Installation:
+#   curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+#   OR: docker pull anchore/grype
+
+# syft - Container image SBOM generator
+# Installation:
+#   curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+#   OR: docker pull anchore/syft
+
+# Infrastructure Scanning
+# tfsec - Terraform security scanner (already included in setup-tools.sh)
+# trivy - Multi-purpose security scanner (already included in setup-tools.sh)
+
+# Container Tools
+# docker - Required for container scanning
+# podman - Alternative container runtime
+
+# Kubernetes Tools
+# kubectl - Required for k8s manifest parsing
+# helm - Required for Helm chart scanning
+# kustomize - Required for kustomize validation
+
+# Node.js Tools (install globally)
+# npm install -g audit-ci
+# npm install -g retire
+# npm install -g snyk
+
+# License Scanning Tools
+# scancode-toolkit - Comprehensive license scanner
+# fossology - Enterprise license compliance (heavy install)
+
+# Additional Security Tools
+# secretscanner - Custom secret detection
+# gitleaks - Git secret scanning
+# truffleহog - Secret hunting tool
+
+# Binary Installation Commands for CI/CD:
+#
+# # Install grype
+# curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+#
+# # Install syft
+# curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+#
+# # Install gitleaks
+# curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.18.0/gitleaks_8.18.0_linux_x64.tar.gz | tar -xz -C /usr/local/bin gitleaks
+#
+# # Install retire.js (Node.js security)
+# npm install -g retire
+#
+# # Install audit-ci (Node.js CI auditing)
+# npm install -g audit-ci

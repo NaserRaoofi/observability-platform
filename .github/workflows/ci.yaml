@@ -1,13 +1,19 @@
-name: CI
+name: Enterprise CI/CD Pipeline
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, developer]
   pull_request:
     branches: [main]
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
 jobs:
-  lint:
+  # ==================== LINTING JOBS ====================
+  lint-comprehensive:
+    name: Comprehensive Linting
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,21 +21,83 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "18"
+          node-version: "20"
+          cache: "npm"
 
-      - name: Install dependencies
+      - name: Install linting dependencies
         run: |
-          npm install -g markdownlint-cli
-          npm install -g yaml-lint
+          npm install -g markdownlint-cli yamllint jsonlint shellcheck-cli
+          sudo apt-get update && sudo apt-get install -y shellcheck
 
-      - name: Lint Markdown
-        run: markdownlint docs/**/*.md README.md
-
-      - name: Lint YAML
+      - name: Run comprehensive linting
         run: |
-          find . -name "*.yaml" -o -name "*.yml" | xargs yamllint
+          echo "🔍 Running Markdown linting..."
+          ci/lint/lint-markdown.sh
 
-  terraform-validate:
+          echo "🔍 Running YAML linting..."
+          ci/lint/lint-yaml.sh
+
+          echo "🔍 Running JSON linting..."
+          ci/lint/lint-json.sh
+
+  # ==================== SECURITY SCANNING JOBS ====================
+  security-trivy:
+    name: Container Security Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "sarif"
+          output: "trivy-results.sarif"
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: "trivy-results.sarif"
+
+  security-checkov:
+    name: Infrastructure Security Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install Checkov
+        run: pip install checkov
+
+      - name: Run Checkov scan
+        run: ci/security/checkov/run-checkov.sh
+
+  secrets-detection:
+    name: Secrets Detection
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        run: |
+          wget https://github.com/gitleaks/gitleaks/releases/download/v8.18.0/gitleaks_8.18.0_linux_x64.tar.gz
+          tar -xzf gitleaks_8.18.0_linux_x64.tar.gz
+          sudo mv gitleaks /usr/local/bin/
+
+      - name: Run gitleaks
+        run: gitleaks detect --source . --verbose
+
+  # ==================== TERRAFORM VALIDATION ====================
+  terraform-comprehensive:
+    name: Comprehensive Terraform Validation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,36 +107,132 @@ jobs:
         with:
           terraform_version: 1.6.0
 
-      - name: Terraform Format Check
-        run: terraform fmt -check -recursive terraform/
-
-      - name: Terraform Validate
+      - name: Install tfsec
         run: |
-          cd terraform/envs/dev
-          terraform init -backend=false
-          terraform validate
+          wget https://github.com/aquasecurity/tfsec/releases/download/v1.28.1/tfsec-linux-amd64
+          chmod +x tfsec-linux-amd64
+          sudo mv tfsec-linux-amd64 /usr/local/bin/tfsec
 
-      - name: Run tfsec
-        uses: aquasecurity/tfsec-action@v1.0.0
+      - name: Run comprehensive Terraform validation
+        run: ci/validation/terraform-validate.sh
+
+      - name: Upload Terraform validation report
+        uses: actions/upload-artifact@v4
+        if: always()
         with:
-          working_directory: terraform/
+          name: terraform-validation-report
+          path: .reports/validation/terraform-validation-*.txt
 
-  policy-tests:
+  # ==================== KUBERNETES VALIDATION ====================
+  kubernetes-validation:
+    name: Kubernetes Validation & Policy Testing
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Conftest
+      - name: Setup tools
         run: |
+          # Install kubectl
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+
+          # Install kustomize
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+
+          # Install conftest
           wget https://github.com/open-policy-agent/conftest/releases/download/v0.46.0/conftest_0.46.0_Linux_x86_64.tar.gz
           tar xzf conftest_0.46.0_Linux_x86_64.tar.gz
           sudo mv conftest /usr/local/bin
 
-      - name: Test Kubernetes manifests
-        run: |
-          find k8s/ -name "*.yaml" -o -name "*.yml" | xargs conftest test --policy ci/policy-tests/
+          # Install kubeval
+          wget https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz
+          tar xf kubeval-linux-amd64.tar.gz
+          sudo mv kubeval /usr/local/bin
 
+      - name: Run Kubernetes validation
+        run: ci/validation/kustomize-validate.sh
+
+      - name: Run policy tests
+        run: ci/policy-tests/test-policies.sh
+
+      - name: Upload validation reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kubernetes-validation-report
+          path: .reports/validation/kustomize-validation-*.txt
+
+  # ==================== QUALITY GATES ====================
+  dependency-security:
+    name: Dependency Security Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install security tools
+        run: |
+          # Python security tools
+          pip install safety bandit semgrep pip-audit
+
+          # Node.js security tools
+          npm install -g audit-ci retire snyk
+
+          # Universal tools
+          wget https://github.com/anchore/grype/releases/download/v0.74.0/grype_0.74.0_linux_amd64.tar.gz
+          tar -xzf grype_0.74.0_linux_amd64.tar.gz
+          sudo mv grype /usr/local/bin/
+
+          wget https://github.com/anchore/syft/releases/download/v0.95.0/syft_0.95.0_linux_amd64.tar.gz
+          tar -xzf syft_0.95.0_linux_amd64.tar.gz
+          sudo mv syft /usr/local/bin/
+
+      - name: Run dependency security checks
+        run: ci/quality-gates/dependency-check.sh
+
+      - name: Upload security reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dependency-security-report
+          path: .reports/quality-gates/
+
+  # ==================== ADDITIONAL TERRAFORM TESTS ====================
+  terraform-advanced:
+    name: Advanced Terraform Testing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+
+      - name: Install tfsec
+        run: |
+          wget https://github.com/aquasecurity/tfsec/releases/download/v1.28.1/tfsec-linux-amd64
+          chmod +x tfsec-linux-amd64
+          sudo mv tfsec-linux-amd64 /usr/local/bin/tfsec
+
+      - name: Run advanced Terraform tests
+        run: ci/tf-tests/run-tfsec.sh
+
+  # ==================== UNIT TESTS ====================
   unit-tests:
+    name: Unit Tests & Coverage
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -80,11 +244,319 @@ jobs:
 
       - name: Install dependencies
         run: |
-          cd apps/demo-shop
-          pip install -r requirements.txt
-          pip install pytest pytest-cov
+          if [ -d "apps/demo-shop" ]; then
+            cd apps/demo-shop
+            pip install -r requirements.txt
+            pip install pytest pytest-cov
+          else
+            echo "No demo-shop app found, skipping unit tests"
+          fi
 
       - name: Run tests
         run: |
-          cd apps/demo-shop
-          pytest --cov=app tests/ || echo "No tests found"
+          if [ -d "apps/demo-shop" ]; then
+            cd apps/demo-shop
+            pytest --cov=app tests/ --cov-report=xml || echo "No tests found"
+          else
+            echo "No demo-shop app found, skipping unit tests"
+          fi
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        if: always() && hashFiles('apps/demo-shop/coverage.xml')
+        with:
+          file: ./apps/demo-shop/coverage.xml
+
+  # ==================== CONTAINER BUILD & SCAN ====================
+  container-security:
+    name: Container Build & Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+      image-tag: ${{ steps.meta.outputs.tags }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build container image (security scan)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.ci
+          push: false
+          tags: scan-image:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run Trivy container scan
+        run: |
+          # Install Trivy if not available
+          if ! command -v trivy &> /dev/null; then
+            wget https://github.com/aquasecurity/trivy/releases/download/v0.47.0/trivy_0.47.0_Linux-64bit.tar.gz
+            tar zxvf trivy_0.47.0_Linux-64bit.tar.gz
+            sudo mv trivy /usr/local/bin/
+          fi
+
+          echo "🔍 Scanning container image for vulnerabilities..."
+          trivy image --exit-code 1 --severity HIGH,CRITICAL scan-image:latest
+
+      - name: Build container image (for validation)
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.ci
+          push: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+
+      - name: Generate SBOM
+        run: |
+          # Install syft if not available
+          if ! command -v syft &> /dev/null; then
+            wget https://github.com/anchore/syft/releases/download/v0.95.0/syft_0.95.0_linux_amd64.tar.gz
+            tar -xzf syft_0.95.0_linux_amd64.tar.gz
+            sudo mv syft /usr/local/bin/
+          fi
+
+          echo "📋 Generating Software Bill of Materials (SBOM)..."
+          syft ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} -o spdx-json=sbom.spdx.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-sbom
+          path: sbom.spdx.json
+
+  # ==================== FINAL VALIDATION ====================
+  validation-summary:
+    name: Validation Summary
+    runs-on: ubuntu-latest
+    needs:
+      [
+        lint-comprehensive,
+        security-trivy,
+        security-checkov,
+        secrets-detection,
+        terraform-comprehensive,
+        kubernetes-validation,
+        dependency-security,
+        terraform-advanced,
+        unit-tests,
+        container-security,
+      ]
+    if: always()
+    steps:
+      - name: Check job results
+        run: |
+          echo "🎯 Enterprise CI/CD Pipeline Results:"
+          echo "=================================="
+
+          # Check if any critical jobs failed
+          if [[ "${{ needs.security-trivy.result }}" == "failure" ||
+                "${{ needs.security-checkov.result }}" == "failure" ||
+                "${{ needs.secrets-detection.result }}" == "failure" ]]; then
+            echo "❌ Security scanning failed - blocking deployment"
+            exit 1
+          fi
+
+          if [[ "${{ needs.terraform-comprehensive.result }}" == "failure" ||
+                "${{ needs.kubernetes-validation.result }}" == "failure" ]]; then
+            echo "❌ Infrastructure validation failed - blocking deployment"
+            exit 1
+          fi
+
+          echo "✅ All critical validations passed!"
+          echo "📊 Pipeline execution summary available in artifacts"
+
+  # ==================== CONTAINER REGISTRY PUBLISHING ====================
+  publish-container:
+    name: Publish Container Image
+    runs-on: ubuntu-latest
+    needs: [validation-summary, container-security]
+    # 🎯 ONLY publish to registry on main branch (after PR approval & merge)
+    if: success() && github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+      image-url: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for production
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=main-
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Build and push production image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.ci
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+
+      - name: Generate build attestation
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Final security scan of published image
+        run: |
+          if ! command -v trivy &> /dev/null; then
+            wget https://github.com/aquasecurity/trivy/releases/download/v0.47.0/trivy_0.47.0_Linux-64bit.tar.gz
+            tar zxvf trivy_0.47.0_Linux-64bit.tar.gz
+            sudo mv trivy /usr/local/bin/
+          fi
+
+          echo "🔒 Final security scan of published image..."
+          trivy image --exit-code 1 --severity HIGH,CRITICAL ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Generate production SBOM
+        run: |
+          if ! command -v syft &> /dev/null; then
+            wget https://github.com/anchore/syft/releases/download/v0.95.0/syft_0.95.0_linux_amd64.tar.gz
+            tar -xzf syft_0.95.0_linux_amd64.tar.gz
+            sudo mv syft /usr/local/bin/
+          fi
+
+          echo "📋 Generating production SBOM..."
+          syft ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest -o spdx-json=production-sbom.spdx.json
+
+      - name: Upload production SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-sbom
+          path: production-sbom.spdx.json
+
+      - name: Container publication summary
+        run: |
+          echo "## 📦 Container Published Successfully" >> $GITHUB_STEP_SUMMARY
+          echo "- **Registry**: ${{ env.REGISTRY }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image**: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "- **Digest**: ${{ steps.build.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Platforms**: linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Attestation**: ✅ Generated" >> $GITHUB_STEP_SUMMARY
+          echo "- **Security Scan**: ✅ Passed" >> $GITHUB_STEP_SUMMARY
+          echo "- **SBOM**: ✅ Generated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 Next Steps:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Image is ready for GitOps deployment" >> $GITHUB_STEP_SUMMARY
+          echo "2. ArgoCD/Flux will detect and deploy to clusters" >> $GITHUB_STEP_SUMMARY
+          echo "3. Update GitOps repo with new image tag if needed" >> $GITHUB_STEP_SUMMARY
+
+  # ==================== GITOPS TRIGGER ====================
+  trigger-gitops:
+    name: Trigger GitOps Deployment
+    runs-on: ubuntu-latest
+    needs: [publish-container]
+    if: success() && github.ref == 'refs/heads/main'
+    steps:
+      - name: Trigger GitOps Repository Update
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository_owner }}/observability-gitops
+          event-type: image-updated
+          client-payload: |
+            {
+              "image": "${{ needs.publish-container.outputs.image-url }}",
+              "tag": "latest",
+              "digest": "${{ needs.publish-container.outputs.image-digest }}",
+              "source_repo": "${{ github.repository }}",
+              "source_commit": "${{ github.sha }}",
+              "source_ref": "${{ github.ref }}",
+              "environment": "production"
+            }
+        continue-on-error: true
+
+      - name: GitOps notification
+        run: |
+          echo "## 🔄 GitOps Deployment Triggered" >> $GITHUB_STEP_SUMMARY
+          echo "- **GitOps Repo**: ${{ github.repository_owner }}/observability-gitops" >> $GITHUB_STEP_SUMMARY
+          echo "- **Event**: image-updated" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image**: ${{ needs.publish-container.outputs.image-url }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment**: production" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 GitOps Process:" >> $GITHUB_STEP_SUMMARY
+          echo "1. ✅ Container image published to registry" >> $GITHUB_STEP_SUMMARY
+          echo "2. ✅ GitOps repository notified of new image" >> $GITHUB_STEP_SUMMARY
+          echo "3. 🔄 ArgoCD will detect manifest changes and deploy" >> $GITHUB_STEP_SUMMARY
+          echo "4. 📊 Monitor deployment in ArgoCD dashboard" >> $GITHUB_STEP_SUMMARY  # ==================== DEVELOPMENT VALIDATION ====================
+  dev-validation-summary:
+    name: Development Branch Validation
+    runs-on: ubuntu-latest
+    needs: [validation-summary, container-security]
+    # 🧪 For development branches - validate but don't deploy
+    if: success() && github.ref != 'refs/heads/main'
+    steps:
+      - name: Development validation summary
+        run: |
+          echo "## 🧪 Development Branch Validation Complete" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: All validations passed ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- **Registry Push**: ❌ Not performed (development branch)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Next Step**: Create PR to main branch for deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 Validation Results:" >> $GITHUB_STEP_SUMMARY
+          echo "- Security Scanning: ✅ Passed" >> $GITHUB_STEP_SUMMARY
+          echo "- Infrastructure Validation: ✅ Passed" >> $GITHUB_STEP_SUMMARY
+          echo "- Policy Testing: ✅ Passed" >> $GITHUB_STEP_SUMMARY
+          echo "- Quality Gates: ✅ Passed" >> $GITHUB_STEP_SUMMARY

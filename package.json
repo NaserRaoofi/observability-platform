@@ -1,0 +1,31 @@
+{
+  "name": "observability-platform-ci",
+  "version": "1.0.0",
+  "description": "Node.js dependencies for CI/CD pipeline",
+  "scripts": {
+    "lint:markdown": "markdownlint **/*.md --ignore node_modules",
+    "lint:json": "jsonlint **/*.json --ignore node_modules",
+    "format:json": "prettier --write **/*.json --ignore node_modules",
+    "security:audit": "audit-ci --config .audit-ci.json",
+    "security:retire": "retire --path .",
+    "security:snyk": "snyk test",
+    "security:licenses": "license-checker --onlyAllow 'MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC'"
+  },
+  "devDependencies": {
+    "markdownlint-cli": "^0.37.0",
+    "jsonlint": "^1.6.3",
+    "prettier": "^3.0.3",
+    "@commitlint/cli": "^17.7.1",
+    "@commitlint/config-conventional": "^17.7.0",
+    "husky": "^8.0.3",
+    "lint-staged": "^14.0.1",
+    "audit-ci": "^6.6.1",
+    "retire": "^4.0.3",
+    "snyk": "^1.1269.0",
+    "license-checker": "^25.0.1"
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  }
+}

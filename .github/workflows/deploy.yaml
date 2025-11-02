@@ -1,25 +1,75 @@
-name: Deploy
+# 🚫 DEPRECATED: Infrastructure Deployment via GitHub Actions
+#
+# This workflow is DISABLED in favor of pure GitOps approach.
+#
+# 🎯 GitOps Flow:
+# 1. CI Pipeline (ci.yaml) → Build & Push image to registry
+# 2. GitOps Repository → ArgoCD/Flux pulls and deploys
+# 3. Infrastructure managed separately via Terraform Cloud/GitOps
+#
+# See GITOPS-SETUP.md for complete setup instructions
 
+name: "[DEPRECATED] Direct Infrastructure Deployment"
+
+# 🔒 This workflow is disabled - use GitOps instead
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
-      environment:
-        description: "Environment to deploy to"
+      confirm_manual_deployment:
+        description: "⚠️ WARNING: This bypasses GitOps! Type 'CONFIRM' to proceed"
         required: true
-        default: "dev"
-        type: choice
-        options:
-          - dev
-          - prod
+        type: string
 
 jobs:
-  terraform-plan:
+  gitops-reminder:
     runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.environment || 'dev' }}
+    if: github.event.inputs.confirm_manual_deployment != 'CONFIRM'
+    steps:
+      - name: GitOps Reminder
+        run: |
+          echo "## ⚠️ GitOps Deployment Required" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "This repository follows **pure GitOps** principles:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🎯 Current GitOps Flow:" >> $GITHUB_STEP_SUMMARY
+          echo "1. **Developer** pushes to \`developer\` branch → CI validation only" >> $GITHUB_STEP_SUMMARY
+          echo "2. **Manager** merges PR to \`main\` → Build & push image to registry" >> $GITHUB_STEP_SUMMARY
+          echo "3. **ArgoCD/Flux** automatically detects new image and deploys" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 Setup Instructions:" >> $GITHUB_STEP_SUMMARY
+          echo "- See \`GITOPS-SETUP.md\` for complete GitOps setup" >> $GITHUB_STEP_SUMMARY
+          echo "- Create GitOps repository: \`observability-gitops\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Install ArgoCD in your cluster" >> $GITHUB_STEP_SUMMARY
+          echo "- Configure ArgoCD to monitor GitOps repository" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 Image Registry:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Registry**: \`ghcr.io/naserraoofi/observability-platform\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Latest Tag**: \`ghcr.io/naserraoofi/observability-platform:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **SHA Tags**: \`ghcr.io/naserraoofi/observability-platform:main-<sha>\`" >> $GITHUB_STEP_SUMMARY
+
+          echo ""
+          echo "❌ Deployment blocked - use GitOps repository instead!"
+          exit 1
+
+  # 🚨 EMERGENCY ONLY - Manual Infrastructure Deployment
+  emergency-terraform-deployment:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.confirm_manual_deployment == 'CONFIRM'
+    environment: emergency-deployment
     steps:
       - uses: actions/checkout@v4
+
+      - name: Emergency Deployment Warning
+        run: |
+          echo "## 🚨 EMERGENCY DEPLOYMENT INITIATED" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ **This deployment bypasses GitOps controls!**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 Post-Deployment Actions Required:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Update GitOps repository to match deployed state" >> $GITHUB_STEP_SUMMARY
+          echo "2. Verify ArgoCD shows no drift" >> $GITHUB_STEP_SUMMARY
+          echo "3. Document emergency deployment in incident report" >> $GITHUB_STEP_SUMMARY
+          echo "4. Review and fix root cause that required manual deployment" >> $GITHUB_STEP_SUMMARY
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -33,80 +83,11 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Terraform Init
+      - name: Emergency Terraform Apply
         run: |
-          cd terraform/envs/${{ github.event.inputs.environment || 'dev' }}
+          cd terraform/envs/dev
           terraform init
+          terraform plan
+          terraform apply -auto-approve
 
-      - name: Terraform Plan
-        run: |
-          cd terraform/envs/${{ github.event.inputs.environment || 'dev' }}
-          terraform plan -out=tfplan
-
-      - name: Upload plan
-        uses: actions/upload-artifact@v3
-        with:
-          name: tfplan-${{ github.event.inputs.environment || 'dev' }}
-          path: terraform/envs/${{ github.event.inputs.environment || 'dev' }}/tfplan
-
-  terraform-apply:
-    needs: terraform-plan
-    runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.environment || 'dev' }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.6.0
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.AWS_REGION }}
-
-      - name: Download plan
-        uses: actions/download-artifact@v3
-        with:
-          name: tfplan-${{ github.event.inputs.environment || 'dev' }}
-          path: terraform/envs/${{ github.event.inputs.environment || 'dev' }}/
-
-      - name: Terraform Init
-        run: |
-          cd terraform/envs/${{ github.event.inputs.environment || 'dev' }}
-          terraform init
-
-      - name: Terraform Apply
-        run: |
-          cd terraform/envs/${{ github.event.inputs.environment || 'dev' }}
-          terraform apply tfplan
-
-  deploy-k8s:
-    needs: terraform-apply
-    runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.environment || 'dev' }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.AWS_REGION }}
-
-      - name: Setup kubectl
-        uses: azure/setup-kubectl@v3
-        with:
-          version: "v1.28.0"
-
-      - name: Update kubeconfig
-        run: |
-          aws eks update-kubeconfig --region ${{ vars.AWS_REGION }} --name observability-${{ github.event.inputs.environment || 'dev' }}
-
-      - name: Deploy with Kustomize
-        run: |
-          kubectl apply -k k8s/overlays/${{ github.event.inputs.environment || 'dev' }}/
+          echo "🚨 Emergency deployment completed - update GitOps repository immediately!"
