@@ -379,6 +379,7 @@ jobs:
           context: .
           file: ./Dockerfile.ci
           push: false
+          load: true
           tags: ci-test-image:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -4,7 +4,7 @@
 # =============================================================================
 # Stage 1: Base System with Common Tools
 # =============================================================================
-FROM ubuntu:24.04 as base-system
+FROM ubuntu:24.04 AS base-system
 
 # Metadata
 LABEL maintainer="observability-platform"
@@ -65,7 +65,7 @@ RUN apt-get update && apt-get install -y \
 # =============================================================================
 # Stage 2: Kubernetes and Infrastructure Tools
 # =============================================================================
-FROM base-system as k8s-tools
+FROM base-system AS k8s-tools
 
 # Tool versions (pinned for reproducibility)
 ENV KUBECTL_VERSION=v1.28.4
@@ -127,7 +127,7 @@ RUN wget -q https://github.com/mikefarah/yq/releases/latest/download/yq_linux_am
 # =============================================================================
 # Stage 3: Programming Language Tools
 # =============================================================================
-FROM k8s-tools as programming-tools
+FROM k8s-tools AS programming-tools
 
 # Create virtual environment for Python
 RUN python3 -m venv /opt/venv
@@ -187,19 +187,12 @@ RUN cd /tmp \
     && npm install -g $(jq -r '.devDependencies | keys[]' package.json | tr '\n' ' ') \
     && rm /tmp/package.json
 
-# Install additional security tools
-RUN pip install \
-    # Additional Python security tools
-    semgrep \
-    pysemgrep \
-    # Documentation tools
-    sphinx \
-    sphinx-rtd-theme
+# Additional security tools installed in previous stage
 
 # =============================================================================
 # Stage 4: CI/CD Environment Setup
 # =============================================================================
-FROM programming-tools as ci-environment
+FROM programming-tools AS ci-environment
 
 # Create working directories
 RUN mkdir -p /workspace \
@@ -294,7 +287,7 @@ ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 # =============================================================================
 # Stage 5: Development Environment (Optional)
 # =============================================================================
-FROM ci-environment as dev-environment
+FROM ci-environment AS dev-environment
 
 # Install development tools
 RUN apt-get update && apt-get install -y \
@@ -341,4 +334,4 @@ RUN echo "CI/CD Environment Build Complete!" > /opt/build-info.txt \
     && echo "- node $(node --version)" >> /opt/build-info.txt
 
 # Default to development environment
-FROM dev-environment as final
+FROM dev-environment AS final
