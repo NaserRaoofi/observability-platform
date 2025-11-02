@@ -1,0 +1,116 @@
+# Pod Security Standards Configuration
+# This file defines default security contexts for all pods in the observability platform
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pod-security-defaults
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: pod-security-defaults
+    app.kubernetes.io/part-of: observability-platform
+    app.kubernetes.io/component: security
+data:
+  default-security-context.yaml: |
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 65534
+      runAsGroup: 65534
+      fsGroup: 65534
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      runAsUser: 65534
+      runAsGroup: 65534
+      capabilities:
+        drop:
+          - ALL
+      seccompProfile:
+        type: RuntimeDefault
+
+---
+# Pod Security Policy for the observability namespace
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: observability-restricted
+  labels:
+    app.kubernetes.io/name: observability-restricted
+    app.kubernetes.io/part-of: observability-platform
+    app.kubernetes.io/component: security
+spec:
+  privileged: false
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+    - ALL
+  volumes:
+    - "configMap"
+    - "emptyDir"
+    - "projected"
+    - "secret"
+    - "downwardAPI"
+    - "persistentVolumeClaim"
+  runAsUser:
+    rule: "MustRunAsNonRoot"
+  seLinux:
+    rule: "RunAsAny"
+  fsGroup:
+    rule: "RunAsAny"
+  readOnlyRootFilesystem: true
+  seccompProfile:
+    type: RuntimeDefault
+
+---
+# ClusterRole for Pod Security Policy
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: observability-psp-user
+  labels:
+    app.kubernetes.io/name: observability-psp-user
+    app.kubernetes.io/part-of: observability-platform
+    app.kubernetes.io/component: security
+rules:
+  - apiGroups: ["policy"]
+    resources: ["podsecuritypolicies"]
+    verbs: ["use"]
+    resourceNames:
+      - observability-restricted
+
+---
+# RoleBinding for Pod Security Policy
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: observability-psp-users
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: observability-psp-users
+    app.kubernetes.io/part-of: observability-platform
+    app.kubernetes.io/component: security
+roleRef:
+  kind: ClusterRole
+  name: observability-psp-user
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+  - kind: ServiceAccount
+    name: grafana
+    namespace: observability
+  - kind: ServiceAccount
+    name: alertmanager
+    namespace: observability
+  - kind: ServiceAccount
+    name: loki
+    namespace: observability
+  - kind: ServiceAccount
+    name: mimir
+    namespace: observability
+  - kind: ServiceAccount
+    name: tempo
+    namespace: observability
+  - kind: ServiceAccount
+    name: otel-collector
+    namespace: observability

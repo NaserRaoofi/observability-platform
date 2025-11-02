@@ -1,0 +1,42 @@
+# Python Requirements for CI/CD Pipeline
+# Install with: pip install -r requirements-ci.txt
+
+# Code Quality and Linting
+yamllint>=1.32.0
+bandit[toml]>=1.7.5
+safety>=2.3.0
+pip-audit>=2.6.0
+
+# Infrastructure Security Scanning
+checkov>=2.4.9
+detect-secrets>=1.4.0
+semgrep>=1.45.0
+cyclonedx-bom>=4.0.0
+
+# Python Development Tools
+black>=23.7.0
+isort>=5.12.0
+flake8>=6.1.0
+flake8-docstrings
+pre-commit>=3.3.0
+
+# License Compliance and Legal
+pip-licenses>=4.3.0
+license-checker>=0.6.0
+pipdeptree>=2.13.0
+
+# Utility Libraries
+requests>=2.31.0
+pyyaml>=6.0
+jinja2>=3.1.2
+click>=8.1.0
+colorama>=0.4.6
+
+# Testing and Validation
+pytest>=7.4.0
+pytest-cov>=4.1.0
+tox>=4.6.0
+
+# Documentation
+mkdocs>=1.5.0
+mkdocs-material>=9.2.0

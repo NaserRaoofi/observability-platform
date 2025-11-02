@@ -1,0 +1,335 @@
+# Multi-stage Dockerfile for CI/CD Pipeline
+# This Dockerfile creates a complete CI environment with all tools needed for the observability platform
+
+# =============================================================================
+# Stage 1: Base System with Common Tools
+# =============================================================================
+FROM ubuntu:24.04 AS base-system
+
+# Metadata
+LABEL maintainer="observability-platform"
+LABEL description="CI/CD Environment for Observability Platform"
+LABEL version="1.0.0"
+
+# Environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+ENV LANG=en_US.UTF-8
+ENV LANGUAGE=en_US:en
+ENV LC_ALL=en_US.UTF-8
+ENV PATH="/usr/local/bin:/usr/bin:/bin:/root/.local/bin"
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    # Basic utilities
+    curl \
+    wget \
+    git \
+    jq \
+    yq \
+    unzip \
+    zip \
+    tar \
+    gzip \
+    ca-certificates \
+    gnupg \
+    lsb-release \
+    software-properties-common \
+    apt-transport-https \
+    # Build tools
+    build-essential \
+    make \
+    gcc \
+    g++ \
+    # Python and development libraries
+    python3 \
+    python3-pip \
+    python3-venv \
+    python3-dev \
+    python3-setuptools \
+    python3-wheel \
+    # Additional libraries for Python packages
+    libffi-dev \
+    libssl-dev \
+    libxml2-dev \
+    libxslt1-dev \
+    libyaml-dev \
+    zlib1g-dev \
+    # Node.js (via NodeSource)
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    # Clean up
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# =============================================================================
+# Stage 2: Kubernetes and Infrastructure Tools
+# =============================================================================
+FROM base-system AS k8s-tools
+
+# Tool versions (pinned for reproducibility)
+ENV KUBECTL_VERSION=v1.28.4
+ENV KUSTOMIZE_VERSION=v5.2.1
+ENV HELM_VERSION=v3.13.2
+ENV TERRAFORM_VERSION=1.6.4
+ENV TFSEC_VERSION=1.28.4
+ENV TRIVY_VERSION=0.47.0
+ENV CONFTEST_VERSION=0.46.0
+ENV OPA_VERSION=0.58.0
+
+# Install kubectl
+RUN curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
+    && chmod +x kubectl \
+    && mv kubectl /usr/local/bin/
+
+# Install kustomize
+RUN curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash \
+    && mv kustomize /usr/local/bin/
+
+# Install Helm
+RUN curl -fsSL https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz | tar -xzf - \
+    && mv linux-amd64/helm /usr/local/bin/ \
+    && rm -rf linux-amd64
+
+# Install Terraform
+RUN wget -q https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip \
+    && unzip terraform_${TERRAFORM_VERSION}_linux_amd64.zip \
+    && mv terraform /usr/local/bin/ \
+    && rm terraform_${TERRAFORM_VERSION}_linux_amd64.zip
+
+# Install tfsec (direct download approach)
+RUN wget -q https://github.com/aquasecurity/tfsec/releases/download/v${TFSEC_VERSION}/tfsec-linux-amd64 \
+    && chmod +x tfsec-linux-amd64 \
+    && mv tfsec-linux-amd64 /usr/local/bin/tfsec
+
+# Install Trivy (direct download approach)
+RUN wget -q https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz \
+    && tar zxvf trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz \
+    && mv trivy /usr/local/bin/ \
+    && rm trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz
+
+# Install Conftest
+RUN wget -q https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz \
+    && tar xzf conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz \
+    && mv conftest /usr/local/bin/ \
+    && rm conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz
+
+# Install OPA
+RUN wget -q https://github.com/open-policy-agent/opa/releases/download/v${OPA_VERSION}/opa_linux_amd64 \
+    && chmod +x opa_linux_amd64 \
+    && mv opa_linux_amd64 /usr/local/bin/opa
+
+# Install yq (YAML processor)
+RUN wget -q https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 \
+    && chmod +x yq_linux_amd64 \
+    && mv yq_linux_amd64 /usr/local/bin/yq
+
+# =============================================================================
+# Stage 3: Programming Language Tools
+# =============================================================================
+FROM k8s-tools AS programming-tools
+
+# Create virtual environment for Python
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Copy Python requirements and install in stages for better error handling
+COPY requirements-ci.txt /tmp/requirements-ci.txt
+
+# Install core packages first
+RUN pip install --upgrade pip setuptools wheel
+
+# Install basic tools
+RUN pip install \
+    yamllint \
+    bandit[toml] \
+    safety \
+    pip-audit \
+    black \
+    isort \
+    flake8 \
+    flake8-docstrings \
+    pre-commit
+
+# Install security scanning tools
+RUN pip install \
+    checkov \
+    detect-secrets
+
+# Install utility packages
+RUN pip install \
+    pip-licenses \
+    pipdeptree \
+    requests \
+    pyyaml \
+    jinja2 \
+    click \
+    colorama \
+    pytest \
+    pytest-cov \
+    tox
+
+# Install documentation tools
+RUN pip install \
+    mkdocs \
+    mkdocs-material
+
+# Install complex packages last with more lenient requirements
+RUN pip install --no-cache-dir semgrep || echo "Warning: semgrep installation failed, continuing..."
+RUN pip install --no-cache-dir cyclonedx-bom || echo "Warning: cyclonedx-bom installation failed, continuing..."
+
+# Clean up
+RUN rm /tmp/requirements-ci.txt
+
+# Copy Node.js package.json and install global packages
+COPY package.json /tmp/package.json
+RUN cd /tmp \
+    && npm install -g $(jq -r '.devDependencies | keys[]' package.json | tr '\n' ' ') \
+    && rm /tmp/package.json
+
+# Additional security tools installed in previous stage
+
+# =============================================================================
+# Stage 4: CI/CD Environment Setup
+# =============================================================================
+FROM programming-tools AS ci-environment
+
+# Create working directories
+RUN mkdir -p /workspace \
+    && mkdir -p /workspace/.reports \
+    && mkdir -p /workspace/.cache \
+    && mkdir -p /opt/ci-tools
+
+# Copy CI scripts and configuration
+COPY ci/ /opt/ci-tools/ci/
+COPY Makefile /opt/ci-tools/
+COPY .pre-commit-config.yaml /opt/ci-tools/
+
+# Make all CI scripts executable
+RUN find /opt/ci-tools/ci -name "*.sh" -exec chmod +x {} \;
+
+# Set up Git configuration (needed for pre-commit)
+RUN git config --global user.email "ci@observability-platform.com" \
+    && git config --global user.name "CI Pipeline" \
+    && git config --global init.defaultBranch main
+
+# Install pre-commit (hooks will be installed when needed in CI workflow)
+RUN pip install pre-commit
+
+# Create CI scripts and entrypoints
+RUN printf '%s\n' \
+    '#!/bin/bash' \
+    'set -euo pipefail' \
+    '' \
+    '# Initialize CI environment' \
+    'echo "🚀 Initializing CI environment..."' \
+    '' \
+    '# Set up Git configuration if not present' \
+    'if [[ ! -f ~/.gitconfig ]]; then' \
+    '    git config --global user.name "CI Runner"' \
+    '    git config --global user.email "ci@observability-platform.local"' \
+    '    git config --global init.defaultBranch main' \
+    'fi' \
+    '' \
+    '# Create cache directories' \
+    'mkdir -p /workspace/.cache/{trivy,checkov,terraform,helm,pip,npm}' \
+    'mkdir -p /workspace/.reports/{lint,security,validation,policy}' \
+    '' \
+    '# Set up tool configurations' \
+    'export TRIVY_CACHE_DIR="/workspace/.cache/trivy"' \
+    'export CHECKOV_LOG_LEVEL="${CHECKOV_LOG_LEVEL:-WARNING}"' \
+    'export TF_PLUGIN_CACHE_DIR="/workspace/.cache/terraform"' \
+    '' \
+    'echo "✅ CI environment ready!"' \
+    '' \
+    '# Execute command or start interactive shell' \
+    'if [[ $# -gt 0 ]]; then' \
+    '    echo "🔧 Executing: $*"' \
+    '    exec "$@"' \
+    'else' \
+    '    echo "🛠️  Starting interactive shell..."' \
+    '    exec /bin/bash' \
+    'fi' \
+    > /usr/local/bin/entrypoint.sh
+
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Create CI tools info script
+RUN printf '%s\n' \
+    '#!/bin/bash' \
+    '# Display information about installed CI tools' \
+    'echo "=== CI/CD Tools Information ==="' \
+    'echo "📦 System: $(lsb_release -d 2>/dev/null | cut -f2 || echo Unknown)"' \
+    'echo "🔧 Git: $(git --version 2>/dev/null || echo Not installed)"' \
+    'echo "☸️ kubectl: $(kubectl version --client --short 2>/dev/null || echo Not installed)"' \
+    'echo "🏗️ terraform: $(terraform version 2>/dev/null | head -1 || echo Not installed)"' \
+    'echo "🔒 trivy: $(trivy --version 2>/dev/null || echo Not installed)"' \
+    'echo "🐍 python: $(python --version 2>/dev/null || echo Not installed)"' \
+    'echo "📝 node: $(node --version 2>/dev/null || echo Not installed)"' \
+    > /usr/local/bin/ci-tools-info.sh \
+    && chmod +x /usr/local/bin/ci-tools-info.sh
+
+# Set working directory
+WORKDIR /workspace
+
+# Expose common ports (for development/testing)
+EXPOSE 3000 8080 9090
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD kubectl version --client || exit 1
+
+# Set entrypoint
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+
+# =============================================================================
+# Stage 5: Development Environment (Optional)
+# =============================================================================
+FROM ci-environment AS dev-environment
+
+# Install development tools
+RUN apt-get update && apt-get install -y \
+    # Editors and development tools
+    vim \
+    nano \
+    less \
+    tree \
+    htop \
+    # Network tools
+    netcat-openbsd \
+    telnet \
+    dnsutils \
+    # Debug tools
+    strace \
+    tcpdump \
+    # Clean up
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install additional development Python packages
+RUN pip install \
+    ipython \
+    jupyter \
+    jupyterlab \
+    debugpy \
+    rich
+
+# Set up shell with useful aliases
+RUN echo 'alias ll="ls -la"' >> ~/.bashrc \
+    && echo 'alias k="kubectl"' >> ~/.bashrc \
+    && echo 'alias tf="terraform"' >> ~/.bashrc \
+    && echo 'alias ci="make ci"' >> ~/.bashrc \
+    && echo 'export PS1="\[\033[01;32m\][ci-env]\[\033[00m\] \[\033[01;34m\]\w\[\033[00m\]\$ "' >> ~/.bashrc
+
+# Final setup
+RUN echo "CI/CD Environment Build Complete!" > /opt/build-info.txt \
+    && date >> /opt/build-info.txt \
+    && echo "Tools installed:" >> /opt/build-info.txt \
+    && echo "- kubectl $(kubectl version --client --short)" >> /opt/build-info.txt \
+    && echo "- terraform $(terraform version -json | jq -r .terraform_version)" >> /opt/build-info.txt \
+    && echo "- helm $(helm version --short)" >> /opt/build-info.txt \
+    && echo "- python $(python --version)" >> /opt/build-info.txt \
+    && echo "- node $(node --version)" >> /opt/build-info.txt
+
+# Default to development environment
+FROM dev-environment AS final

@@ -1,0 +1,26 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: policy
+  namespace: gatekeeper-system
+
+resources:
+  - gatekeeper-policies.yaml
+  - network-policies.yaml
+  - pod-security-policies.yaml
+  - pod-security-defaults.yaml
+  - rbac.yaml
+  - resource-policies.yaml
+
+namespace: gatekeeper-system
+
+commonLabels:
+  app.kubernetes.io/name: policy
+  app.kubernetes.io/part-of: observability-platform
+  app.kubernetes.io/component: security
+
+commonAnnotations:
+  config.kubernetes.io/origin: |
+    configuredBy: kustomize
+    configuredIn: k8s/base/policy/kustomization.yaml

@@ -1,0 +1,97 @@
+# Docker Compose for CI/CD Development Environment
+version: '3.8'
+
+services:
+  # Main CI/CD Environment
+  ci-environment:
+    build:
+      context: .
+      dockerfile: Dockerfile.ci
+      target: final
+    image: observability-platform-ci:latest
+    container_name: obs-ci-env
+    volumes:
+      # Mount project source code
+      - .:/workspace
+      # Persistent cache directories
+      - ci-cache:/workspace/.cache
+      - ci-reports:/workspace/.reports
+      # Docker socket for container scanning (optional)
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      # CI Configuration
+      - CI=true
+      - DOCKER_BUILDKIT=1
+      - COMPOSE_DOCKER_CLI_BUILD=1
+      # Tool configurations
+      - YAMLLINT_CONFIG_FILE=/workspace/ci/lint/.yamllint.yml
+      - MARKDOWNLINT_CONFIG=/workspace/ci/lint/.markdownlint.json
+      # Security scanning
+      - TRIVY_CACHE_DIR=/workspace/.cache/trivy
+      - CHECKOV_LOG_LEVEL=WARNING
+    working_dir: /workspace
+    networks:
+      - ci-network
+    # Keep container running for development
+    stdin_open: true
+    tty: true
+
+  # Lightweight CI Runner (for CI/CD pipelines)
+  ci-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.ci
+      target: ci-environment
+    image: observability-platform-ci:runner
+    volumes:
+      - .:/workspace:ro  # Read-only for CI
+      - ci-reports:/workspace/.reports
+    environment:
+      - CI=true
+      - CI_RUNNER=true
+    working_dir: /workspace
+    networks:
+      - ci-network
+    # Run CI pipeline and exit
+    command: ["make", "ci"]
+
+  # Development Environment with additional tools
+  dev-environment:
+    build:
+      context: .
+      dockerfile: Dockerfile.ci
+      target: dev-environment
+    image: observability-platform-ci:dev
+    container_name: obs-dev-env
+    volumes:
+      - .:/workspace
+      - dev-cache:/root/.cache
+      - dev-config:/root/.config
+    environment:
+      - DEVELOPMENT=true
+    ports:
+      # Expose common development ports
+      - "3000:3000"   # General development
+      - "8080:8080"   # HTTP services
+      - "9090:9090"   # Prometheus/monitoring
+      - "8888:8888"   # Jupyter Lab
+    working_dir: /workspace
+    networks:
+      - ci-network
+    stdin_open: true
+    tty: true
+
+volumes:
+  # Persistent volumes for caching
+  ci-cache:
+    driver: local
+  ci-reports:
+    driver: local
+  dev-cache:
+    driver: local
+  dev-config:
+    driver: local
+
+networks:
+  ci-network:
+    driver: bridge
