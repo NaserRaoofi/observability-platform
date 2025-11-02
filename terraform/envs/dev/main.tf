@@ -1,7 +1,16 @@
 # Development Environment Configuration
 # Complete observability stack for development with cost optimization
 
-# Version constraints moved to versions.tf
+terraform {
+  required_version = ">= 1.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
 
 # Configure AWS Provider
 provider "aws" {
@@ -89,9 +98,9 @@ module "observability_iam" {
   project_name = var.project_name
   environment  = var.environment
 
-  # EKS Configuration
-  eks_oidc_provider_arn = var.eks_oidc_provider_arn
-  monitoring_namespace  = var.monitoring_namespace
+  # EKS Configuration (placeholder - update with actual EKS OIDC provider ARN)
+  eks_oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/oidc.eks.us-west-2.amazonaws.com/id/EXAMPLE"
+  monitoring_namespace = "monitoring"
 
   # Required: DynamoDB table ARNs
   mimir_table_arn = module.observability_dynamodb.mimir_table_arn
@@ -110,3 +119,5 @@ module "observability_iam" {
   # Tags
   tags = local.common_tags
 }
+
+

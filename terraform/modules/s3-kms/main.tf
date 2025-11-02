@@ -159,7 +159,7 @@ module "mimir_bucket" {
       }
 
       expiration = {
-        days = 2555 # ~7 years default retention
+        days = 2555  # ~7 years default retention
       }
     }
   ] : []
@@ -182,10 +182,10 @@ module "mimir_bucket" {
   } : {}
 
   tags = merge(local.common_tags, {
-    Name      = "${local.bucket_prefix}-mimir-metrics"
-    Component = "mimir-storage"
-    Purpose   = "metrics-storage"
-    DataType  = "metrics"
+    Name        = "${local.bucket_prefix}-mimir-metrics"
+    Component   = "mimir-storage"
+    Purpose     = "metrics-storage"
+    DataType    = "metrics"
   })
 }
 
@@ -260,10 +260,10 @@ module "loki_bucket" {
   ] : []
 
   tags = merge(local.common_tags, {
-    Name      = "${local.bucket_prefix}-loki-logs"
-    Component = "loki-storage"
-    Purpose   = "logs-storage"
-    DataType  = "logs"
+    Name        = "${local.bucket_prefix}-loki-logs"
+    Component   = "loki-storage"
+    Purpose     = "logs-storage"
+    DataType    = "logs"
   })
 }
 
@@ -340,10 +340,10 @@ module "tempo_bucket" {
   } : {}
 
   tags = merge(local.common_tags, {
-    Name      = "${local.bucket_prefix}-tempo-traces"
-    Component = "tempo-storage"
-    Purpose   = "traces-storage"
-    DataType  = "traces"
+    Name        = "${local.bucket_prefix}-tempo-traces"
+    Component   = "tempo-storage"
+    Purpose     = "traces-storage"
+    DataType    = "traces"
   })
 }
 

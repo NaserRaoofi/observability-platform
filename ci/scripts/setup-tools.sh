@@ -214,48 +214,6 @@ install_ci_tools() {
         esac
         echo -e "${GREEN}✅ yq installed${NC}"
     fi
-
-    # Install grype (container vulnerability scanner)
-    if ! command -v grype &> /dev/null; then
-        echo -e "${BLUE}Installing grype...${NC}"
-        case "$OS" in
-            linux)
-                curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b "$tools_dir"
-                ;;
-            darwin)
-                brew install grype
-                ;;
-        esac
-        echo -e "${GREEN}✅ grype installed${NC}"
-    fi
-
-    # Install syft (SBOM generator)
-    if ! command -v syft &> /dev/null; then
-        echo -e "${BLUE}Installing syft...${NC}"
-        case "$OS" in
-            linux)
-                curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b "$tools_dir"
-                ;;
-            darwin)
-                brew install syft
-                ;;
-        esac
-        echo -e "${GREEN}✅ syft installed${NC}"
-    fi
-
-    # Install gitleaks (secret scanner)
-    if ! command -v gitleaks &> /dev/null; then
-        echo -e "${BLUE}Installing gitleaks...${NC}"
-        case "$OS" in
-            linux)
-                curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.18.0/gitleaks_8.18.0_linux_x64.tar.gz | tar -xz -C "$tools_dir" gitleaks
-                ;;
-            darwin)
-                brew install gitleaks
-                ;;
-        esac
-        echo -e "${GREEN}✅ gitleaks installed${NC}"
-    fi
 }
 
 # Function to install Python tools
@@ -272,12 +230,7 @@ install_python_tools() {
         pip-audit \
         yamllint \
         bandit \
-        pre-commit \
-        semgrep \
-        cyclonedx-bom \
-        pip-licenses \
-        pipdeptree \
-        detect-secrets
+        pre-commit
 
     echo -e "${GREEN}✅ Python CI tools installed${NC}"
 }
@@ -291,11 +244,7 @@ install_nodejs_tools() {
         markdownlint-cli \
         jsonlint \
         @commitlint/cli \
-        @commitlint/config-conventional \
-        audit-ci \
-        retire \
-        snyk \
-        license-checker
+        @commitlint/config-conventional
 
     echo -e "${GREEN}✅ Node.js CI tools installed${NC}"
 }

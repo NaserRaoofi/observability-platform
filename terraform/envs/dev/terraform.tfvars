@@ -12,7 +12,7 @@ project_name = "observability"
 # Replace these with your actual EKS cluster details
 # ===============================================================================
 eks_cluster_name      = "dev-observability-cluster"
-eks_oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/oidc.eks.us-west-2.amazonaws.com/id/EXAMPLE12345"
+eks_oidc_provider_arn = "arn:aws:iam::YOUR_ACCOUNT_ID:oidc-provider/oidc.eks.us-west-2.amazonaws.com/id/YOUR_OIDC_ID"
 
 # ===============================================================================
 # KUBERNETES NAMESPACES
