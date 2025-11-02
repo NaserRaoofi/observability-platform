@@ -51,7 +51,7 @@ output "mimir_table_endpoint" {
   description = "DynamoDB endpoint for the Mimir table"
   value = length(module.mimir_index_table) > 0 ? {
     table_name = module.mimir_index_table[0].table_name
-    region     = data.aws_region.current.name
+    region     = data.aws_region.current.id
   } : null
 }
 
@@ -59,6 +59,6 @@ output "loki_table_endpoint" {
   description = "DynamoDB endpoint for the Loki table"
   value = length(module.loki_index_table) > 0 ? {
     table_name = module.loki_index_table[0].table_name
-    region     = data.aws_region.current.name
+    region     = data.aws_region.current.id
   } : null
 }
