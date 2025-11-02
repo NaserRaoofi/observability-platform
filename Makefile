@@ -58,7 +58,6 @@ help:
 	@echo ""
 	@echo "Development Commands:"
 	@echo "  lint           Run all linting checks"
-	@echo "  security       Run all security scans"
 	@echo "  validate       Validate infrastructure configurations"
 	@echo "  test           Run all tests (policies, validation, etc.)"
 	@echo "  format         Format all code files"
@@ -66,7 +65,13 @@ help:
 	@echo "CI/CD Commands:"
 	@echo "  ci             Run complete CI pipeline"
 	@echo "  pre-commit     Setup and run pre-commit hooks"
-	@echo "  quality-gates  Run quality gate checks"
+	@echo "  quality-gates  Run lightweight dependency vulnerability checks (FAST)"
+	@echo ""
+	@echo "Security Commands (Deep Analysis):"
+	@echo "  security              Run all comprehensive security scans (SLOW)"
+	@echo "  scan-infrastructure   Deep IaC security analysis (checkov + tfsec)"
+	@echo "  scan-containers      Deep container vulnerability analysis (trivy)"
+	@echo "  scan-dependencies    Lightweight dependency vulnerability check (quality gate)"
 	@echo ""
 	@echo "Infrastructure Commands:"
 	@echo "  tf-plan        Run Terraform plan for all environments"
@@ -82,11 +87,6 @@ help:
 	@echo "  clean          Clean all temporary files and artifacts"
 	@echo "  clean-reports  Clean only report files"
 	@echo "  status         Show project and tool status"
-	@echo ""
-	@echo "Security Commands:"
-	@echo "  scan-containers     Scan container images for vulnerabilities"
-	@echo "  scan-infrastructure Scan infrastructure for security issues"
-	@echo "  scan-dependencies   Scan dependencies for vulnerabilities"
 	@echo ""
 
 ## setup: Setup CI environment and install all required tools
@@ -143,9 +143,14 @@ format:
 	@find $(K8S_DIR) -name "*.yaml" -o -name "*.yml" | head -20 | xargs -I {} sh -c 'yq eval "." {} > /tmp/formatted.yaml && mv /tmp/formatted.yaml {}' 2>/dev/null || true
 	$(call print_success,Code formatting completed)
 
-## security: Run all security scans
-security: scan-infrastructure scan-containers scan-dependencies
-	$(call print_success,All security scans completed)
+## security: Run comprehensive security scans (deep analysis - slower)
+security: scan-infrastructure scan-containers
+	$(call print_success,Comprehensive security analysis completed)
+	@echo ""
+	@echo "📊 Security Scan Summary:"
+	@echo "  🏗️  Infrastructure Security: $(REPORTS_DIR)/security/checkov-*.json"
+	@echo "  🐳 Container Security: $(REPORTS_DIR)/security/trivy-*.json"
+	@echo "  📋 Detailed reports available in $(REPORTS_DIR)/security/"
 
 ## scan-infrastructure: Run infrastructure security scanning
 scan-infrastructure:
@@ -208,14 +213,15 @@ test-policies:
 test-validation: validate
 	@echo "Validation tests completed as part of validate target"
 
-## quality-gates: Run quality gate checks
+## quality-gates: Run lightweight quality gate checks (fast dependency scanning)
 quality-gates:
-	$(call print_section,Running quality gate checks)
+	$(call print_section,Running quality gate checks (Fast))
 	@make scan-dependencies
-	@echo "Quality gates evaluation:"
-	@echo "- Security vulnerabilities: Check reports in $(REPORTS_DIR)/security/"
-	@echo "- Policy compliance: Check reports in $(REPORTS_DIR)/policy/"
-	@echo "- Validation status: Check reports in $(REPORTS_DIR)/validation/"
+	@echo ""
+	@echo "🚦 Quality Gate Results:"
+	@echo "  📊 Dependency Vulnerabilities: $(REPORTS_DIR)/dependencies/"
+	@echo "  ⚡ Fast execution for CI/CD pipeline integration"
+	@echo "  🔍 For deep security analysis, run 'make security'"
 
 ## tf-plan: Run Terraform plan for all environments
 tf-plan:

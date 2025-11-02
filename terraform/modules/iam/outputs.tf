@@ -145,32 +145,32 @@ output "roles_summary" {
   description = "Summary of all created IAM roles for documentation"
   value = {
     mimir = {
-      role_arn                    = module.mimir_role.iam_role_arn
-      role_name                   = module.mimir_role.iam_role_name
-      kubernetes_namespace        = var.monitoring_namespace
-      kubernetes_service_account  = "mimir"
-      permissions                 = ["DynamoDB:ReadWrite", "S3:ReadWrite", "CloudWatch:Metrics"]
+      role_arn                   = module.mimir_role.iam_role_arn
+      role_name                  = module.mimir_role.iam_role_name
+      kubernetes_namespace       = var.monitoring_namespace
+      kubernetes_service_account = "mimir"
+      permissions                = ["DynamoDB:ReadWrite", "S3:ReadWrite", "CloudWatch:Metrics"]
     }
     loki = var.create_loki_resources ? {
-      role_arn                    = module.loki_role[0].iam_role_arn
-      role_name                   = module.loki_role[0].iam_role_name
-      kubernetes_namespace        = var.monitoring_namespace
-      kubernetes_service_account  = "loki"
-      permissions                 = ["DynamoDB:ReadWrite", "S3:ReadWrite", "CloudWatch:Logs"]
+      role_arn                   = module.loki_role[0].iam_role_arn
+      role_name                  = module.loki_role[0].iam_role_name
+      kubernetes_namespace       = var.monitoring_namespace
+      kubernetes_service_account = "loki"
+      permissions                = ["DynamoDB:ReadWrite", "S3:ReadWrite", "CloudWatch:Logs"]
     } : null
     grafana = var.create_grafana_resources ? {
-      role_arn                    = module.grafana_role[0].iam_role_arn
-      role_name                   = module.grafana_role[0].iam_role_name
-      kubernetes_namespace        = var.monitoring_namespace
-      kubernetes_service_account  = "grafana"
-      permissions                 = ["CloudWatch:ReadOnly", "Prometheus:ReadOnly"]
+      role_arn                   = module.grafana_role[0].iam_role_arn
+      role_name                  = module.grafana_role[0].iam_role_name
+      kubernetes_namespace       = var.monitoring_namespace
+      kubernetes_service_account = "grafana"
+      permissions                = ["CloudWatch:ReadOnly", "Prometheus:ReadOnly"]
     } : null
     tempo = var.create_tempo_resources ? {
-      role_arn                    = module.tempo_role[0].iam_role_arn
-      role_name                   = module.tempo_role[0].iam_role_name
-      kubernetes_namespace        = var.monitoring_namespace
-      kubernetes_service_account  = "tempo"
-      permissions                 = ["S3:ReadWrite"]
+      role_arn                   = module.tempo_role[0].iam_role_arn
+      role_name                  = module.tempo_role[0].iam_role_name
+      kubernetes_namespace       = var.monitoring_namespace
+      kubernetes_service_account = "tempo"
+      permissions                = ["S3:ReadWrite"]
     } : null
   }
 }

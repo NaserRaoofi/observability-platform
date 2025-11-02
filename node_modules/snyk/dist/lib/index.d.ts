@@ -1,0 +1,4 @@
+export const id: any;
+export const api: string | undefined;
+export const test: typeof import("./snyk-test");
+export const config: import("./user-config").ConfigStoreWithEnvironmentVariables;

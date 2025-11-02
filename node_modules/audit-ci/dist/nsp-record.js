@@ -1,0 +1,64 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.isNSPRecordActive = exports.getNSPContent = exports.getAllowlistId = void 0;
+/**
+ * Retrieves the allowlist id from the NSPRecord.
+ *
+ * @param nspRecord NSPRecord object.
+ * @returns The advisory id.
+ */
+function getAllowlistId(nspRecord) {
+    return Object.keys(nspRecord)[0];
+}
+exports.getAllowlistId = getAllowlistId;
+/**
+ * Retrieves the content for the NSPRecord.
+ *
+ * @param nspRecord NSPRecord object.
+ * @returns The NSPContent object.
+ */
+function getNSPContent(nspRecord) {
+    const values = Object.values(nspRecord);
+    if (values.length > 0) {
+        return values[0];
+    }
+    throw new Error(`Empty NSPRecord is invalid. Here's an example of a valid NSPRecord:
+{
+  "allowlist": [
+    {
+      "vulnerable-module": {
+        "active": true,
+        "notes": "This is a note",
+        "expiry": "2022-01-01"
+      }
+    }
+  ]
+}
+    `);
+}
+exports.getNSPContent = getNSPContent;
+/**
+ * Determines if the NSPRecord is active.
+ *
+ * @param nspRecord NSPRecord object.
+ * @param now The current date. The default is initialized to the current date.
+ * @returns True if the record is active, false otherwise.
+ */
+function isNSPRecordActive(nspRecord, now = new Date()) {
+    const content = getNSPContent(nspRecord);
+    if (!content.active) {
+        return false;
+    }
+    if (content.expiry) {
+        const expiryDate = new Date(content.expiry);
+        if (expiryDate.getTime() > 0) {
+            // Expiry is valid, check if we've passed it yet.
+            return now.getTime() < expiryDate.getTime();
+        }
+        // Expiry isn't valid. For safety, disable the rule.
+        return false;
+    }
+    return true;
+}
+exports.isNSPRecordActive = isNSPRecordActive;
+//# sourceMappingURL=nsp-record.js.map

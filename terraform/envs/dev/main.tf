@@ -98,9 +98,9 @@ module "observability_iam" {
   project_name = var.project_name
   environment  = var.environment
 
-  # EKS Configuration (placeholder - update with actual EKS OIDC provider ARN)
-  eks_oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/oidc.eks.us-west-2.amazonaws.com/id/EXAMPLE"
-  monitoring_namespace = "monitoring"
+  # EKS Configuration
+  eks_oidc_provider_arn = var.eks_oidc_provider_arn
+  monitoring_namespace  = var.monitoring_namespace
 
   # Required: DynamoDB table ARNs
   mimir_table_arn = module.observability_dynamodb.mimir_table_arn
@@ -119,5 +119,3 @@ module "observability_iam" {
   # Tags
   tags = local.common_tags
 }
-
-

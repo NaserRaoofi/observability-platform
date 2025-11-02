@@ -33,19 +33,19 @@ module "mimir_index_table" {
   dynamodb_attributes = [
     {
       name = "metric_name"
-      type = "S"  # String: metric name (e.g., "cpu.usage", "memory.utilization")
+      type = "S" # String: metric name (e.g., "cpu.usage", "memory.utilization")
     },
     {
       name = "timestamp"
-      type = "S"  # String: ISO timestamp for time-based queries
+      type = "S" # String: ISO timestamp for time-based queries
     },
     {
       name = "tenant_id"
-      type = "S"  # String: for multi-tenant metrics isolation
+      type = "S" # String: for multi-tenant metrics isolation
     },
     {
       name = "labels_hash"
-      type = "S"  # String: hash of metric labels for efficient lookups
+      type = "S" # String: hash of metric labels for efficient lookups
     }
   ]
 
@@ -83,7 +83,7 @@ module "mimir_index_table" {
   # Security and backup
   enable_encryption                  = var.server_side_encryption_enabled
   server_side_encryption_kms_key_arn = var.kms_key_arn
-  enable_point_in_time_recovery     = var.point_in_time_recovery_enabled
+  enable_point_in_time_recovery      = var.point_in_time_recovery_enabled
 
   # Autoscaling
   enable_autoscaler      = var.autoscaling_enabled && var.billing_mode == "PROVISIONED"
@@ -115,25 +115,25 @@ module "loki_index_table" {
   dynamodb_attributes = [
     {
       name = "stream_id"
-      type = "S"  # String: unique stream identifier
+      type = "S" # String: unique stream identifier
     },
     {
       name = "chunk_id"
-      type = "S"  # String: chunk identifier with timestamp
+      type = "S" # String: chunk identifier with timestamp
     },
     {
       name = "tenant_id"
-      type = "S"  # String: for multi-tenant log isolation
+      type = "S" # String: for multi-tenant log isolation
     },
     {
       name = "log_level"
-      type = "S"  # String: log level (INFO, WARN, ERROR, etc.)
+      type = "S" # String: log level (INFO, WARN, ERROR, etc.)
     },
     {
       name = "service_name"
-      type = "S"  # String: service that generated the logs
+      type = "S" # String: service that generated the logs
     }
-  ]  # Billing configuration
+  ] # Billing configuration
   billing_mode = var.billing_mode
 
   # Capacity settings
@@ -145,7 +145,7 @@ module "loki_index_table" {
   # Security and backup
   enable_encryption                  = var.server_side_encryption_enabled
   server_side_encryption_kms_key_arn = var.kms_key_arn
-  enable_point_in_time_recovery     = var.point_in_time_recovery_enabled
+  enable_point_in_time_recovery      = var.point_in_time_recovery_enabled
 
   # Global Secondary Indexes for efficient log querying
   global_secondary_index_map = [

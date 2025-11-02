@@ -263,10 +263,10 @@ output "helm_values_loki" {
       schemaConfig = {
         configs = [
           {
-            from = "2024-04-01"
-            store = "tsdb"
+            from         = "2024-04-01"
+            store        = "tsdb"
             object_store = "s3"
-            schema = "v13"
+            schema       = "v13"
             index = {
               prefix = "loki_index_"
               period = "24h"
