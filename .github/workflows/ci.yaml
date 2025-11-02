@@ -231,7 +231,7 @@ jobs:
             echo "Checking Node.js dependencies..."
             npm audit --audit-level moderate || echo "npm audit completed with findings"
           fi
-          
+
           if [ -f "requirements-ci.txt" ]; then
             echo "Checking Python dependencies..."
             pip install safety
