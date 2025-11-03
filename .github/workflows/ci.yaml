@@ -449,11 +449,13 @@ jobs:
         run: |
           echo "🏷️ Generating semantic version tags..."
 
+          # Fetch all tags to ensure we have the latest tag information
+          git fetch --tags
+
           SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-8)
 
-          # Auto-increment patch version based on commits since last tag
+          # Find the latest tag
           LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-          COMMIT_COUNT=$(git rev-list --count ${LAST_TAG}..HEAD 2>/dev/null || echo "1")
 
           # Extract version numbers from last tag (format: v1.2.3)
           if [[ $LAST_TAG =~ v([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
@@ -461,20 +463,37 @@ jobs:
             MINOR=${BASH_REMATCH[2]}
             PATCH=${BASH_REMATCH[3]}
           else
-            MAJOR=1
+            MAJOR=0
             MINOR=0
             PATCH=0
           fi
 
-          # Auto-increment patch version
-          NEW_PATCH=$((PATCH + COMMIT_COUNT))
+          # Increment patch version for each new commit
+          COMMIT_COUNT=$(git rev-list --count ${LAST_TAG}..HEAD 2>/dev/null || echo "1")
+          if [[ $COMMIT_COUNT -eq 0 ]]; then
+            # No new commits since last tag, increment patch by 1
+            NEW_PATCH=$((PATCH + 1))
+          else
+            # Increment by number of commits
+            NEW_PATCH=$((PATCH + COMMIT_COUNT))
+          fi
+
           SEMANTIC_VERSION="v${MAJOR}.${MINOR}.${NEW_PATCH}"
+
+          # Check if tag already exists locally or remotely
+          if git tag | grep -q "^${SEMANTIC_VERSION}$" || git ls-remote --tags origin | grep -q "refs/tags/${SEMANTIC_VERSION}$"; then
+            echo "⚠️ Tag ${SEMANTIC_VERSION} already exists, incrementing..."
+            NEW_PATCH=$((NEW_PATCH + 1))
+            SEMANTIC_VERSION="v${MAJOR}.${MINOR}.${NEW_PATCH}"
+          fi
 
           # Set essential version outputs
           echo "semantic_version=${SEMANTIC_VERSION}" >> $GITHUB_OUTPUT
           echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
 
           echo "📋 Version Information:"
+          echo "- Last Tag: ${LAST_TAG}"
+          echo "- New Commits: ${COMMIT_COUNT}"
           echo "- Semantic: ${SEMANTIC_VERSION}"
           echo "- SHA: ${SHORT_SHA}"
 
@@ -508,9 +527,14 @@ jobs:
           docker push ${REGISTRY_BASE}:${{ steps.version.outputs.semantic_version }}
           docker push ${REGISTRY_BASE}:sha-${{ steps.version.outputs.short_sha }}
 
-          # Create Git tag for this release
-          git tag ${{ steps.version.outputs.semantic_version }}
-          git push origin ${{ steps.version.outputs.semantic_version }}
+          # Create Git tag for this release (if it doesn't exist)
+          if ! git tag | grep -q "^${{ steps.version.outputs.semantic_version }}$"; then
+            git tag ${{ steps.version.outputs.semantic_version }}
+            git push origin ${{ steps.version.outputs.semantic_version }}
+            echo "✅ Created and pushed tag: ${{ steps.version.outputs.semantic_version }}"
+          else
+            echo "ℹ️ Tag ${{ steps.version.outputs.semantic_version }} already exists, skipping creation"
+          fi
 
           # Generate summary
           echo "## 🚀 Container Images Published" >> $GITHUB_STEP_SUMMARY
