@@ -1,0 +1,96 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: observability
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: "Observability Platform Project for monitoring and logging infrastructure"
+
+  # Source repositories
+  sourceRepos:
+    - "https://github.com/NaserRaoofi/observability-platform.git"
+    - "https://prometheus-community.github.io/helm-charts"
+    - "https://grafana.github.io/helm-charts"
+    - "https://helm.elastic.co"
+    - "https://open-telemetry.github.io/opentelemetry-helm-charts"
+
+  # Allowed destinations
+  destinations:
+    - namespace: "observability-*"
+      server: https://kubernetes.default.svc
+    - namespace: "monitoring"
+      server: https://kubernetes.default.svc
+    - namespace: "logging"
+      server: https://kubernetes.default.svc
+
+  # Cluster resource allow list
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: ""
+      kind: PersistentVolume
+    - group: "rbac.authorization.k8s.io"
+      kind: ClusterRole
+    - group: "rbac.authorization.k8s.io"
+      kind: ClusterRoleBinding
+    - group: "apiextensions.k8s.io"
+      kind: CustomResourceDefinition
+    - group: "admissionregistration.k8s.io"
+      kind: ValidatingAdmissionWebhook
+    - group: "admissionregistration.k8s.io"
+      kind: MutatingAdmissionWebhook
+
+  # Namespace resource allow list
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+
+  # Security policies
+  roles:
+    - name: observability-admin
+      description: "Full access to observability applications"
+      policies:
+        - p, proj:observability:observability-admin, applications, *, observability/*, allow
+        - p, proj:observability:observability-admin, repositories, *, *, allow
+        - p, proj:observability:observability-admin, clusters, get, *, allow
+      groups:
+        - observability:admins
+
+    - name: observability-developer
+      description: "Developer access to observability applications"
+      policies:
+        - p, proj:observability:observability-developer, applications, get, observability/observability-dev, allow
+        - p, proj:observability:observability-developer, applications, sync, observability/observability-dev, allow
+        - p, proj:observability:observability-developer, applications, action/*, observability/observability-dev, allow
+      groups:
+        - observability:developers
+
+    - name: observability-viewer
+      description: "Read-only access to observability applications"
+      policies:
+        - p, proj:observability:observability-viewer, applications, get, observability/*, allow
+        - p, proj:observability:observability-viewer, repositories, get, *, allow
+      groups:
+        - observability:viewers
+
+  # Sync windows for maintenance
+  syncWindows:
+    - kind: allow
+      schedule: "0 2 * * SUN" # Sunday 2 AM UTC
+      duration: 2h
+      applications:
+        - observability-prod
+      manualSync: true
+
+    - kind: deny
+      schedule: "0 9-17 * * MON-FRI" # Business hours
+      duration: 8h
+      applications:
+        - observability-prod
+      manualSync: false
+
+  # Orphaned resources
+  orphanedResources:
+    warn: true
