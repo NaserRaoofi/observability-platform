@@ -1,0 +1,150 @@
+# ArgoCD Installation manifest
+# This installs ArgoCD in the cluster with observability-specific configurations
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argocd
+  labels:
+    app.kubernetes.io/name: argocd
+    app.kubernetes.io/component: namespace
+
+---
+# Install ArgoCD using the official manifest
+# This is a reference - you should apply the official ArgoCD installation
+# kubectl create namespace argocd
+# kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# Custom ArgoCD Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cmd-params-cm
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-cmd-params-cm
+    app.kubernetes.io/part-of: argocd
+data:
+  # Enable insecure mode for easier setup (disable in production)
+  server.insecure: "true"
+  # Enable application status badge
+  application.instanceLabelKey: argocd.argoproj.io/instance
+  # Increase resource tracking timeout
+  controller.status.processors: "20"
+  controller.operation.processors: "10"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-server-config
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-server-config
+    app.kubernetes.io/part-of: argocd
+data:
+  # Git repositories configuration
+  repositories: |
+    - type: git
+      url: https://github.com/NaserRaoofi/observability-platform.git
+    - type: helm
+      url: https://prometheus-community.github.io/helm-charts
+      name: prometheus-community
+    - type: helm
+      url: https://grafana.github.io/helm-charts
+      name: grafana
+    - type: helm
+      url: https://helm.elastic.co
+      name: elastic
+    - type: helm
+      url: https://open-telemetry.github.io/opentelemetry-helm-charts
+      name: opentelemetry
+
+  # Resource inclusions/exclusions
+  resource.inclusions: |
+    - apiVersion: "*"
+      kind: "*"
+      cluster: "*"
+      namespace: "observability-*"
+    - apiVersion: "*"
+      kind: "*"
+      cluster: "*"
+      namespace: "monitoring"
+    - apiVersion: "*"
+      kind: "*"
+      cluster: "*"
+      namespace: "logging"
+
+  # Application settings
+  application.instanceLabelKey: argocd.argoproj.io/instance
+
+  # Enable anonymous access for demo (remove in production)
+  users.anonymous.enabled: "false"
+
+  # Server configuration
+  url: https://argocd.observability.local
+
+  # OIDC configuration (customize for your environment)
+  # oidc.config: |
+  #   name: OIDC
+  #   issuer: https://your-oidc-provider.com
+  #   clientId: argocd
+  #   clientSecret: $oidc.clientSecret
+  #   requestedScopes: ["openid", "profile", "email", "groups"]
+  #   requestedIDTokenClaims: {"groups": {"essential": true}}
+
+---
+# ArgoCD Ingress (optional - customize for your environment)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd-server-ingress
+  namespace: argocd
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
+spec:
+  rules:
+    - host: argocd.observability.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: argocd-server
+                port:
+                  number: 80
+
+---
+# RBAC Configuration for observability team
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-rbac-cm
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-rbac-cm
+    app.kubernetes.io/part-of: argocd
+data:
+  policy.default: role:readonly
+  policy.csv: |
+    # Observability team policies
+    p, role:observability-admin, applications, *, */*, allow
+    p, role:observability-admin, clusters, get, *, allow
+    p, role:observability-admin, repositories, get, *, allow
+    p, role:observability-admin, repositories, create, *, allow
+    p, role:observability-admin, repositories, update, *, allow
+    p, role:observability-admin, repositories, delete, *, allow
+
+    p, role:observability-developer, applications, get, */*, allow
+    p, role:observability-developer, applications, sync, */observability-dev, allow
+    p, role:observability-developer, applications, action/*, */observability-dev, allow
+
+    # Group assignments (customize based on your OIDC/LDAP groups)
+    g, observability:admins, role:observability-admin
+    g, observability:developers, role:observability-developer
+    g, argocd-admin, role:admin
