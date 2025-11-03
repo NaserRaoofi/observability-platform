@@ -19,6 +19,7 @@ permissions:
   packages: write
   security-events: write
   id-token: write
+  attestations: write # Required for build provenance attestations
 
 jobs:
   # ==================== CI/CD WORKFLOW STRATEGY ====================
